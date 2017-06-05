@@ -1,0 +1,9 @@
+
+20 Days
+[('Total Return', '-1.37%'), ('Sharpe Ratio', '-3.36'), ('Max Drawdown', '3.92%'), ('Drawdown Duration', '849')]
+55 Days
+[('Total Return', '-4.26%'), ('Sharpe Ratio', '-13.14'), ('Max Drawdown', '5.49%'), ('Drawdown Duration', '908')]
+20 Days + Pred
+[('Total Return', '-0.95%'), ('Sharpe Ratio', '-3.31'), ('Max Drawdown', '2.42%'), ('Drawdown Duration', '879')]
+Custom
+[('Total Return', '-0.95%'), ('Sharpe Ratio', '-3.31'), ('Max Drawdown', '2.42%'), ('Drawdown Duration', '879')]

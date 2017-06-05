@@ -1,0 +1,3 @@
+
+Custom
+[('Total Return', '9.86%'), ('Sharpe Ratio', '2.45'), ('Max Drawdown', '15.61%'), ('Drawdown Duration', '2172')]

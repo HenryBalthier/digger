@@ -1,0 +1,3 @@
+
+20 Days
+[('Total Return', '4.83%'), ('Sharpe Ratio', '2.83'), ('Max Drawdown', '7.51%'), ('Drawdown Duration', '2471')]

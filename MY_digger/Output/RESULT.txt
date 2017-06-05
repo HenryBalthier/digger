@@ -1,0 +1,5 @@
+
+20 Days
+[('Total Return', '-16.16%'), ('Sharpe Ratio', '-25.94'), ('Max Drawdown', '18.98%'), ('Drawdown Duration', '124')]
+Custom
+[('Total Return', '-16.16%'), ('Sharpe Ratio', '-25.94'), ('Max Drawdown', '18.98%'), ('Drawdown Duration', '124')]
