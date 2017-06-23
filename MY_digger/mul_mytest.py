@@ -5,17 +5,23 @@ from quantdigger import *
 import timeit, copy
 from mul_config import Default
 from mul_config import PERIOD
+from quantdigger.digger import finance, plotting
+import myplot
+import time
+import datetime
 
 
 CAPITAL = Default.get_capital()
+RANDOM = Default.get_random()
+MESSAGE = Messages(CAPITAL)
 
 
 class DemoStrategy(Strategy):
 
     def on_init(self, ctx):
         """初始化数据"""
-        ctx.tt20 = Turtle(ctx.close, 20, 'tt20', ('r', 'g'))
-        ctx.tt10 = Turtle(ctx.close, 10, 'tt10', ('y', 'b'))
+        ctx.tt20 = Turtle_base(ctx.close, 20, 'tt20', ('r', 'g'))
+        ctx.tt10 = Turtle_base(ctx.close, 10, 'tt10', ('y', 'b'))
 
         self.N_mul = dict()
         self.N20_mul = dict()
@@ -25,10 +31,13 @@ class DemoStrategy(Strategy):
         self.breakpoint_mul = dict()
 
         self.risk_ctl = Risk_ctl(ctx)
+        self.restraint = Restraint()
 
         self.L = []
 
         self.candicates = dict()
+
+        print 'ctx.symbol = %s' % ctx.symbol.split('.')[0]
 
     def on_symbol(self, ctx):
         if ctx.curbar == 1:
@@ -43,7 +52,7 @@ class DemoStrategy(Strategy):
             self.L.append(max((ctx.high - ctx.close[1]), (ctx.close[1] - ctx.low), (ctx.high - ctx.low)))
             self.N_mul[ctx.symbol] = self.L
 
-            if ctx.curbar == 20:
+            if ctx.curbar > 20:
                 for i in range(1, 20):
                     self.N20_mul[ctx.symbol] += self.N_mul[ctx.symbol][i]
                 self.N20_mul[ctx.symbol] /= len(self.N_mul[ctx.symbol])
@@ -54,53 +63,69 @@ class DemoStrategy(Strategy):
 
             # 多头入市
             # 跳空高开
-            if ctx.close[1] < ctx.tt20['max'][2] and ctx.open > ctx.tt20['max'][1] and \
-                    self.num_unit_mul[ctx.symbol] == 0:
-                self.candicates[ctx.symbol] = 'buy 1a'
+            if ctx.close[1] < ctx.tt20['max'][2] and ctx.open > ctx.tt20['max'][1] and RANDOM and\
+                    self.num_unit_mul[ctx.symbol] == 0 and Stopbuy(ctxdate=ctx[ctx.symbol].datetime):
+                if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=1):
+                    self.candicates[ctx.symbol] = 'buy 1a'
 
-            elif ctx.close[1] < ctx.tt20['max'][2] and ctx.high > ctx.tt20['max'][1] and \
-                    self.num_unit_mul[ctx.symbol] == 0:
-                self.candicates[ctx.symbol] = 'buy 1b'
+            elif ctx.close[1] < ctx.tt20['max'][2] and ctx.high > ctx.tt20['max'][1] and RANDOM and\
+                    self.num_unit_mul[ctx.symbol] == 0 and Stopbuy(ctxdate=ctx[ctx.symbol].datetime):
+                if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=1):
+                    self.candicates[ctx.symbol] = 'buy 1b'
 
             # 多头退市
             elif ctx.close[1] > ctx.tt10['min'][2] and ctx.low < ctx.tt10['min'][1] and \
                     self.num_unit_mul[ctx.symbol] > 0:
+                self.restraint.count_clear(symbol=ctx.symbol, num_unit_mul=self.num_unit_mul)
                 self.candicates[ctx.symbol] = 'sell 1'
 
             # 空头入市
             # 跳空低开
-            elif ctx.close[1] > ctx.tt20['min'][2] and ctx.open < ctx.tt20['min'][1] and \
-                    self.num_unit_mul[ctx.symbol] == 0:
-                self.candicates[ctx.symbol] = 'short 1a'
-            elif ctx.close[1] > ctx.tt20['min'][2] and ctx.low < ctx.tt20['min'][1] and \
-                    self.num_unit_mul[ctx.symbol] == 0:
-                self.candicates[ctx.symbol] = 'short 1b'
+            elif ctx.close[1] > ctx.tt20['min'][2] and ctx.open < ctx.tt20['min'][1] and RANDOM and\
+                    self.num_unit_mul[ctx.symbol] == 0 and Stopbuy(ctxdate=ctx[ctx.symbol].datetime):
+                if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=-1):
+                    self.candicates[ctx.symbol] = 'short 1a'
+            elif ctx.close[1] > ctx.tt20['min'][2] and ctx.low < ctx.tt20['min'][1] and RANDOM and\
+                    self.num_unit_mul[ctx.symbol] == 0 and Stopbuy(ctxdate=ctx[ctx.symbol].datetime):
+                if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=-1):
+                    self.candicates[ctx.symbol] = 'short 1b'
 
                 # 空头退市
             elif ctx.close[1] < ctx.tt10['max'][2] and ctx.high > ctx.tt10['max'][1] and \
                     self.num_unit_mul[ctx.symbol] < 0:
+                self.restraint.count_clear(symbol=ctx.symbol, num_unit_mul=self.num_unit_mul)
                 self.candicates[ctx.symbol] = 'cover 1'
 
                 # 多头加仓
             elif 0 < self.num_unit_mul[ctx.symbol] < 4:
                 # 跳空高开
-                if (self.breakpoint_mul[ctx.symbol][-1][0] + self.n20_mul[ctx.symbol] * 0.5) < ctx.open:
-                    self.candicates[ctx.symbol] = 'buy 2a'
-                elif (self.breakpoint_mul[ctx.symbol][-1][0] + self.n20_mul[ctx.symbol] * 0.5) < ctx.high:
-                    self.candicates[ctx.symbol] = 'buy 2b'
+                if (self.breakpoint_mul[ctx.symbol][-1][0] + self.n20_mul[ctx.symbol] * 0.5) < ctx.open \
+                        and Stopbuy(ctxdate=ctx[ctx.symbol].datetime) and RANDOM:
+                    if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=1):
+                        self.candicates[ctx.symbol] = 'buy 2a'
+                elif (self.breakpoint_mul[ctx.symbol][-1][0] + self.n20_mul[ctx.symbol] * 0.5) < ctx.high\
+                        and Stopbuy(ctxdate=ctx[ctx.symbol].datetime) and RANDOM:
+                    if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=1):
+                        self.candicates[ctx.symbol] = 'buy 2b'
                     # 多头止损
                 elif (self.breakpoint_mul[ctx.symbol][-1][0] - self.n20_mul[ctx.symbol] * 2) > ctx.low:
+                    self.restraint.count_clear(symbol=ctx.symbol, num_unit_mul=self.num_unit_mul)
                     self.candicates[ctx.symbol] = 'sell 2'
 
                     # 空头加仓
             elif -4 < self.num_unit_mul[ctx.symbol] < 0:
                 # 跳空低开
-                if (self.breakpoint_mul[ctx.symbol][-1][0] - self.n20_mul[ctx.symbol] * 0.5) > ctx.open:
-                    self.candicates[ctx.symbol] = 'short 2a'
-                elif (self.breakpoint_mul[ctx.symbol][-1][0] - self.n20_mul[ctx.symbol] * 0.5) > ctx.low:
-                    self.candicates[ctx.symbol] = 'short 2b'
+                if (self.breakpoint_mul[ctx.symbol][-1][0] - self.n20_mul[ctx.symbol] * 0.5) > ctx.open\
+                        and Stopbuy(ctxdate=ctx[ctx.symbol].datetime) and RANDOM:
+                    if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=-1):
+                        self.candicates[ctx.symbol] = 'short 2a'
+                elif (self.breakpoint_mul[ctx.symbol][-1][0] - self.n20_mul[ctx.symbol] * 0.5) > ctx.low\
+                        and Stopbuy(ctxdate=ctx[ctx.symbol].datetime) and RANDOM:
+                    if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=-1):
+                        self.candicates[ctx.symbol] = 'short 2b'
                     # 空头止损
                 elif (self.breakpoint_mul[ctx.symbol][-1][0] + self.n20_mul[ctx.symbol] * 2) < ctx.high:
+                    self.restraint.count_clear(symbol=ctx.symbol, num_unit_mul=self.num_unit_mul)
                     self.candicates[ctx.symbol] = 'cover 2'
 
     def on_bar(self, ctx):
@@ -113,32 +138,34 @@ class DemoStrategy(Strategy):
                 # force cover
                 if cash < 0:
                     print ('### Current print = %f' % cash)
-                    if self.num_unit > 0:
+                    if self.num_unit_mul[cand] > 0:
                         all_units = 0
                         for lst in self.breakpoint_mul[cand]:
                             all_units += lst[1]
                             assert lst[2] == 'buy'
-                        self.breakpoint_mul[cand].clear()
+                        self.breakpoint_mul[cand] = []
                         assert isinstance(all_units, int)
                         assert all_units > 0
                         print ('sell_unit = %d' % all_units)
-                        _price = self._cmp(ctx.high, ctx.low, ctx.ttout['min'][1])
+                        _price = self._cmp(ctx.high, ctx.low, ctx.tt10['min'][1])
                         ctx.sell(_price, all_units)
-                        self.num_unit = 0
+                        self.num_unit_mul[cand]  = 0
                         self.display(ctx, 'sell-force', cand)
-                    elif self.num_unit < 0:
+                    elif self.num_unit_mul[cand]  < 0:
                         all_units = 0
                         for lst in self.breakpoint_mul[cand]:
                             all_units += lst[1]
                             assert lst[2] == 'short'
-                        self.breakpoint_mul[cand].clear()
+                        self.breakpoint_mul[cand] = []
                         assert isinstance(all_units, int)
                         assert all_units > 0
                         print ('cover_unit = %d' % all_units)
-                        _price = self._cmp(ctx.high, ctx.low, ctx.ttout['max'][1])
+                        _price = self._cmp(ctx.high, ctx.low, ctx.tt10['max'][1])
                         ctx.cover(_price, all_units)
-                        self.num_unit = 0
+                        self.num_unit_mul[cand]  = 0
                         self.display(ctx, 'cover-force', cand)
+
+                    continue
 
                 # 空开跳高
                 if self.candicates[cand] == 'buy 1a':
@@ -175,7 +202,8 @@ class DemoStrategy(Strategy):
                     assert isinstance(all_units, int)
                     assert all_units > 0
                     print ('sell_unit = %d' % all_units)
-                    _price = self._cmp(ctx.high, ctx.low, ctx.tt10['min'][1])
+
+                    _price = self._cmp(ctx.open, ctx.low, ctx.tt10['min'][1])
                     ctx.sell(_price, all_units)
                     self.num_unit_mul[cand] = 0
                     self.display(ctx, 'sell', cand)
@@ -216,7 +244,7 @@ class DemoStrategy(Strategy):
                     assert isinstance(all_units, int)
                     assert all_units > 0
                     print ('cover_unit = %d' % all_units)
-                    _price = self._cmp(ctx.high, ctx.low, ctx.tt10['max'][1])
+                    _price = self._cmp(ctx.high, ctx.open, ctx.tt10['max'][1])
                     ctx.cover(_price, all_units)
                     self.num_unit_mul[cand] = 0
                     self.display(ctx, 'cover', cand)
@@ -248,7 +276,7 @@ class DemoStrategy(Strategy):
                 elif self.candicates[cand] == 'sell 2':
                     all_units = 0
                     p = round(self.breakpoint_mul[cand][-1][0] - self.n20_mul[cand] * 2, 2)
-                    _price = self._cmp(ctx.high, ctx.low, p)
+                    _price = self._cmp(ctx.open, ctx.low, p)
                     for lst in self.breakpoint_mul[cand]:
                         all_units += lst[1]
                         assert lst[2] == 'buy'
@@ -289,7 +317,7 @@ class DemoStrategy(Strategy):
                 elif self.candicates[cand] == 'cover 2':
                     all_units = 0
                     p = round(self.breakpoint_mul[cand][-1][0] + self.n20_mul[cand] * 2, 2)
-                    _price = self._cmp(ctx.high, ctx.low, p)
+                    _price = self._cmp(ctx.high, ctx.open, p)
                     for lst in self.breakpoint_mul[cand]:
                         all_units += lst[1]
                         assert lst[2] == 'short'
@@ -322,7 +350,10 @@ class DemoStrategy(Strategy):
             tag = 'short'
         else:
             tag = 'unkonwn'
-        print (ctx.position(tag, 'BB.SHFE'))
+        # print (ctx.position(tag, 'BB.SHFE'))
+        print ('datetime = %s' % str(ctx.datetime))
+
+        MESSAGE.get_info(cash, name, cand=cand)
 
     def _cmp(self, a, b, c):
         lst = [a, b, c]
@@ -336,8 +367,8 @@ class MainStrategy(Strategy):
         """初始化数据"""
         self.tt = Default.get_tt()
 
-        ctx.ttin = Turtle(ctx.close, self.tt['IN'], 'ttin', ('r', 'g'))
-        ctx.ttout = Turtle(ctx.close, self.tt['OUT'], 'ttout', ('y', 'b'))
+        ctx.ttin = Turtle_base(ctx.close, self.tt['IN'], 'ttin', ('r', 'g'))
+        ctx.ttout = Turtle_base(ctx.close, self.tt['OUT'], 'ttout', ('y', 'b'))
 
         self.num_unit_mul = dict()
         self.max_unit = Default.get_maxunit()
@@ -348,7 +379,9 @@ class MainStrategy(Strategy):
         self.oc = Operation_cycle()
 
         self.breakpoint_mul = dict()
-        self.predict = Predict_module()
+        self.predict = Predict_module(CTS)
+
+        self.restraint = Restraint()
 
         self.risk_ctl = Risk_ctl(ctx)
 
@@ -375,8 +408,8 @@ class MainStrategy(Strategy):
             self.L.append(max((ctx.high - ctx.close[1]), (ctx.close[1] - ctx.low), (ctx.high - ctx.low)))
             self.N_mul[ctx.symbol] = self.L
 
-            if ctx.curbar == self.tt['N']:
-                for i in range(1, self.tt['N']):
+            if ctx.curbar > self.tt['N']:
+                for i in range(1, 20):
                     self.N20_mul[ctx.symbol] += self.N_mul[ctx.symbol][i]
                 self.N20_mul[ctx.symbol] /= len(self.N_mul[ctx.symbol])
 
@@ -389,59 +422,79 @@ class MainStrategy(Strategy):
 
             # 多头入市
             # 跳空高开
-            if ctx.close[1] < ctx.ttin['max'][2] and ctx.open > ctx.ttin['max'][1] and \
-                    self.num_unit_mul[ctx.symbol] == 0 and oc_cycle and self.predict.signal(ctx.curbar) >= 0:
-                self.candicates[ctx.symbol] = 'buy 1a'
+            if ctx.close[1] < ctx.ttin['max'][2] and ctx.open > ctx.ttin['max'][1] and RANDOM and \
+                    self.num_unit_mul[ctx.symbol] == 0 and oc_cycle and self.predict.signal(ctx.symbol, ctx.curbar) >= 0 \
+                    and Stopbuy(ctxdate=ctx[ctx.symbol].datetime):
+                if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=1):
+                    self.candicates[ctx.symbol] = 'buy 1a'
 
-            elif ctx.close[1] < ctx.ttin['max'][2] and ctx.high > ctx.ttin['max'][1] and \
-                    self.num_unit_mul[ctx.symbol] == 0 and oc_cycle and self.predict.signal(ctx.curbar) >= 0:
-                self.candicates[ctx.symbol] = 'buy 1b'
+            elif ctx.close[1] < ctx.ttin['max'][2] and ctx.high > ctx.ttin['max'][1] and RANDOM and \
+                    self.num_unit_mul[ctx.symbol] == 0 and oc_cycle and self.predict.signal(ctx.symbol, ctx.curbar) >= 0\
+                    and Stopbuy(ctxdate=ctx[ctx.symbol].datetime):
+                if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=1):
+                    self.candicates[ctx.symbol] = 'buy 1b'
 
             # 多头退市
             elif ctx.close[1] > ctx.ttout['min'][2] and ctx.low < ctx.ttout['min'][1] and \
                     self.num_unit_mul[ctx.symbol] > 0 and oc_cycle:
+                self.restraint.count_clear(symbol=ctx.symbol, num_unit_mul=self.num_unit_mul)
                 self.candicates[ctx.symbol] = 'sell 1'
 
             # 空头入市
             # 跳空低开
-            elif ctx.close[1] > ctx.ttin['min'][2] and ctx.open < ctx.ttin['min'][1] and \
-                    self.num_unit_mul[ctx.symbol] == 0 and oc_cycle and self.predict.signal(ctx.curbar) <= 0:
-                self.candicates[ctx.symbol] = 'short 1a'
-            elif ctx.close[1] > ctx.ttin['min'][2] and ctx.low < ctx.ttin['min'][1] and \
-                    self.num_unit_mul[ctx.symbol] == 0 and oc_cycle and self.predict.signal(ctx.curbar) <= 0:
-                self.candicates[ctx.symbol] = 'short 1b'
+            elif ctx.close[1] > ctx.ttin['min'][2] and ctx.open < ctx.ttin['min'][1] and RANDOM and \
+                    self.num_unit_mul[ctx.symbol] == 0 and oc_cycle and self.predict.signal(ctx.symbol, ctx.curbar) <= 0\
+                    and Stopbuy(ctxdate=ctx[ctx.symbol].datetime):
+                if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=-1):
+                    self.candicates[ctx.symbol] = 'short 1a'
+            elif ctx.close[1] > ctx.ttin['min'][2] and ctx.low < ctx.ttin['min'][1] and RANDOM and \
+                    self.num_unit_mul[ctx.symbol] == 0 and oc_cycle and self.predict.signal(ctx.symbol, ctx.curbar) <= 0\
+                    and Stopbuy(ctxdate=ctx[ctx.symbol].datetime):
+                if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=-1):
+                    self.candicates[ctx.symbol] = 'short 1b'
 
                 # 空头退市
             elif ctx.close[1] < ctx.ttout['max'][2] and ctx.high > ctx.ttout['max'][1] and \
                     self.num_unit_mul[ctx.symbol] < 0 and oc_cycle:
+                self.restraint.count_clear(symbol=ctx.symbol, num_unit_mul=self.num_unit_mul)
                 self.candicates[ctx.symbol] = 'cover 1'
 
                 # 多头加仓
             elif 0 < self.num_unit_mul[ctx.symbol] < maxunits:
                 # 跳空高开
                 if (self.breakpoint_mul[ctx.symbol][-1][0] + self.n20_mul[ctx.symbol] * 0.5) < ctx.open and \
-                        oc_cycle and self.predict.signal(ctx.curbar) >= 0:
-                    self.candicates[ctx.symbol] = 'buy 2a'
+                        oc_cycle and self.predict.signal(ctx.symbol, ctx.curbar) >= 0\
+                        and Stopbuy(ctxdate=ctx[ctx.symbol].datetime) and RANDOM:
+                    if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=1):
+                        self.candicates[ctx.symbol] = 'buy 2a'
                 elif (self.breakpoint_mul[ctx.symbol][-1][0] + self.n20_mul[ctx.symbol] * 0.5) < ctx.high and \
-                        oc_cycle and self.predict.signal(ctx.curbar) >= 0:
-                    self.candicates[ctx.symbol] = 'buy 2b'
+                        oc_cycle and self.predict.signal(ctx.symbol, ctx.curbar) >= 0\
+                        and Stopbuy(ctxdate=ctx[ctx.symbol].datetime) and RANDOM:
+                    if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=1):
+                        self.candicates[ctx.symbol] = 'buy 2b'
                     # 多头止损
                 elif (self.breakpoint_mul[ctx.symbol][-1][0] - self.n20_mul[ctx.symbol] * 2) > ctx.low and \
                         oc_cycle:
+                    self.restraint.count_clear(symbol=ctx.symbol, num_unit_mul=self.num_unit_mul)
                     self.candicates[ctx.symbol] = 'sell 2'
 
                     # 空头加仓
             elif _maxunits < self.num_unit_mul[ctx.symbol] < 0:
                 # 跳空低开
                 if (self.breakpoint_mul[ctx.symbol][-1][0] - self.n20_mul[ctx.symbol] * 0.5) > ctx.open and \
-                        oc_cycle and self.predict.signal(ctx.curbar) <= 0:
-                    self.candicates[ctx.symbol] = 'short 2a'
+                        oc_cycle and self.predict.signal(ctx.symbol, ctx.curbar) <= 0\
+                        and Stopbuy(ctxdate=ctx[ctx.symbol].datetime) and RANDOM:
+                    if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=-1):
+                        self.candicates[ctx.symbol] = 'short 2a'
                 elif (self.breakpoint_mul[ctx.symbol][-1][0] - self.n20_mul[ctx.symbol] * 0.5) > ctx.low and \
-                        oc_cycle and self.predict.signal(ctx.curbar) <= 0:
-                    self.candicates[ctx.symbol] = 'short 2b'
+                        oc_cycle and self.predict.signal(ctx.symbol, ctx.curbar) <= 0\
+                        and Stopbuy(ctxdate=ctx[ctx.symbol].datetime) and RANDOM:
+                    if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=-1):
+                        self.candicates[ctx.symbol] = 'short 2b'
                     # 空头止损
                 elif (self.breakpoint_mul[ctx.symbol][-1][0] + self.n20_mul[ctx.symbol] * 2) < ctx.high and \
                         oc_cycle:
+                    self.restraint.count_clear(symbol=ctx.symbol, num_unit_mul=self.num_unit_mul)
                     self.candicates[ctx.symbol] = 'cover 2'
 
     def on_bar(self, ctx):
@@ -459,7 +512,7 @@ class MainStrategy(Strategy):
                         for lst in self.breakpoint_mul[cand]:
                             all_units += lst[1]
                             assert lst[2] == 'buy'
-                        self.breakpoint_mul[cand].clear()
+                        self.breakpoint_mul[cand] = []
                         assert isinstance(all_units, int)
                         assert all_units > 0
                         print ('sell_unit = %d' % all_units)
@@ -472,7 +525,7 @@ class MainStrategy(Strategy):
                         for lst in self.breakpoint_mul[cand]:
                             all_units += lst[1]
                             assert lst[2] == 'short'
-                        self.breakpoint_mul[cand].clear()
+                        self.breakpoint_mul[cand] = []
                         assert isinstance(all_units, int)
                         assert all_units > 0
                         print ('cover_unit = %d' % all_units)
@@ -516,7 +569,7 @@ class MainStrategy(Strategy):
                     assert isinstance(all_units, int)
                     assert all_units > 0
                     print ('sell_unit = %d' % all_units)
-                    _price = self._cmp(ctx.high, ctx.low, ctx.ttout['min'][1])
+                    _price = self._cmp(ctx.open, ctx.low, ctx.ttout['min'][1])
                     ctx.sell(_price, all_units)
                     self.num_unit_mul[cand] = 0
                     self.display(ctx, 'sell', cand)
@@ -557,7 +610,7 @@ class MainStrategy(Strategy):
                     assert isinstance(all_units, int)
                     assert all_units > 0
                     print ('cover_unit = %d' % all_units)
-                    _price = self._cmp(ctx.high, ctx.low, ctx.ttout['max'][1])
+                    _price = self._cmp(ctx.high, ctx.open, ctx.ttout['max'][1])
                     ctx.cover(_price, all_units)
                     self.num_unit_mul[cand] = 0
                     self.display(ctx, 'cover', cand)
@@ -589,7 +642,7 @@ class MainStrategy(Strategy):
                 elif self.candicates[cand] == 'sell 2':
                     all_units = 0
                     p = round(self.breakpoint_mul[cand][-1][0] - self.n20_mul[cand] * 2, 2)
-                    _price = self._cmp(ctx.high, ctx.low, p)
+                    _price = self._cmp(ctx.open, ctx.low, p)
                     for lst in self.breakpoint_mul[cand]:
                         all_units += lst[1]
                         assert lst[2] == 'buy'
@@ -630,7 +683,7 @@ class MainStrategy(Strategy):
                 elif self.candicates[cand] == 'cover 2':
                     all_units = 0
                     p = round(self.breakpoint_mul[cand][-1][0] + self.n20_mul[cand] * 2, 2)
-                    _price = self._cmp(ctx.high, ctx.low, p)
+                    _price = self._cmp(ctx.high, ctx.open, p)
                     for lst in self.breakpoint_mul[cand]:
                         all_units += lst[1]
                         assert lst[2] == 'short'
@@ -664,6 +717,7 @@ class MainStrategy(Strategy):
         else:
             tag = 'unkonwn'
         print (ctx.position(tag, 'BB.SHFE'))
+        MESSAGE.get_info(cash, name, cand=cand)
 
     def _cmp(self, a, b, c):
         lst = [a, b, c]
@@ -671,231 +725,378 @@ class MainStrategy(Strategy):
         return lst[1]
 
 
-class DemoStrategy1(Strategy):
-    """ 策略 20 Days """
+''' 5 Strategies
+Turtle
+Strength Turtle
+Beforehand Turtle
+ATR Turtle
+ATR Beforehand Turtle
+'''
 
+class Turtle(Strategy):
 
     def on_init(self, ctx):
         """初始化数据"""
-        ctx.tt20 = Turtle(ctx.close, 20, 'tt20', ('r', 'g'))
-        ctx.tt10 = Turtle(ctx.close, 10, 'tt10', ('y', 'b'))
+        '''
+        d = {
+            '20min': 20, '1h': 60, '1day': 365, '5days': 1825, '20days': 7300, '60days': 21900,
+            '10min': 10, '30min': 30, '3h': 180, '2days': 730, '10days': 3650, '30days': 10950,
+            '80min': 80, '4h': 240, '4day': 1460,            '80days': 292000, '240days': 87600
+        }
+        ctx.tt = {}
+        for i in d:
+            print i
+            ctx.tt[i] = Turtle_base(ctx.close, d[i], i, ('r', 'g'))
+        '''
+        ctx.tt20 = Turtle_base(ctx.close, 20, 'tt20', ('r', 'g'))
+        ctx.tt10 = Turtle_base(ctx.close, 10, 'tt10', ('y', 'b'))
 
-        self.num_unit = 0
-        self.max_unit = 4
-        self.N = [0, ]
-        self.N20 = 0.0
-        self.n20 = 0.0
-
-        self.breakpoint = []
+        self.N_mul = dict()
+        self.N20_mul = dict()
+        self.n20_mul = dict()
+        self.num_unit_mul = dict()
+        self.breakpoint_mul = dict()
 
         self.risk_ctl = Risk_ctl(ctx)
+        self.restraint = Restraint()
 
-        self.candicates = []
+        self.L = []
+
+        self.candicates = dict()
+
+        print 'ctx.symbol = %s' % ctx.symbol.split('.')[0]      # eg. 'A1601'
+
+        self.count = Timecount(ctx)
+        print self.count
+
+        self.status = {}
+        self.timecount = {}
+        self.activepcon = Activepcon()
 
     def on_symbol(self, ctx):
-        self.candicates = 'I'
 
-    def on_bar(self, ctx):
+        #self.count = Timecount(ctx)
+
+        if ctx.curbar == 1:
+            self.N_mul[ctx.symbol] = []
+            self.N20_mul[ctx.symbol] = 0.0
+            self.n20_mul[ctx.symbol] = 0.0
+            self.num_unit_mul[ctx.symbol] = 0
+            self.breakpoint_mul[ctx.symbol] = []
+
+            '''ATR type: 1. 20min 2. 1h 3. 1day 4. 5days 5. 20days 6. 60days'''
+            self.status[ctx.symbol] = Constatus()
+            self.timecount[ctx.symbol] = Timecount(ctx)
+            #self.activepcon = Activepcon()
+
+
         if ctx.curbar > 1:
-            self.N.append(max((ctx.high - ctx.close[1]), (ctx.close[1] - ctx.low), (ctx.high - ctx.low)))
+            self.L.append(max((ctx.high - ctx.close[1]), (ctx.close[1] - ctx.low), (ctx.high - ctx.low)))
+            self.N_mul[ctx.symbol] = self.L
 
-            if ctx.curbar == 20:
+            import time
+
+            print ctx.datetime, ctx.open, ctx.symbol, ctx.volume
+
+            isactive = self.timecount[ctx.symbol]._count(ctx)      #return if period active
+            self.status[ctx.symbol]._ATR(ctx)
+
+            if isactive:
+                self.status[ctx.symbol]._ATR(period=isactive)
+                self.activepcon.refresh(ctx.symbol, self.status[ctx.symbol].vol)
+
+
+
+            if ctx.curbar > 20:
                 for i in range(1, 20):
-                    self.N20 += self.N[i]
-                self.N20 /= len(self.N)
+                    self.N20_mul[ctx.symbol] += self.N_mul[ctx.symbol][i]
+                self.N20_mul[ctx.symbol] /= len(self.N_mul[ctx.symbol])
 
         if ctx.curbar > 20:
-            self.N20 = (self.N20 * 19 + self.N[-1]) / 20.0
-            cash = ctx.cash()
-
-            # force cover
-            if cash < 0:
-                print ('### Current print = %f' % cash)
-                if self.num_unit > 0:
-                    all_units = 0
-                    for lst in self.breakpoint:
-                        all_units += lst[1]
-                        assert lst[2] == 'buy'
-                    self.breakpoint = []
-                    assert isinstance(all_units, int)
-                    assert all_units > 0
-                    print ('sell_unit = %d' % all_units)
-                    _price = self._cmp(ctx.high, ctx.low, ctx.ttout['min'][1])
-                    ctx.sell(_price, all_units)
-                    self.num_unit = 0
-                    self.display(ctx, 'sell-force')
-                elif self.num_unit < 0:
-                    all_units = 0
-                    for lst in self.breakpoint:
-                        all_units += lst[1]
-                        assert lst[2] == 'short'
-                    self.breakpoint = []
-                    assert isinstance(all_units, int)
-                    assert all_units > 0
-                    print ('cover_unit = %d' % all_units)
-                    _price = self._cmp(ctx.high, ctx.low, ctx.ttout['max'][1])
-                    ctx.cover(_price, all_units)
-                    self.num_unit = 0
-                    self.display(ctx, 'cover-force')
+            self.N20_mul[ctx.symbol] = (self.N20_mul[ctx.symbol] * 19 + self.N_mul[ctx.symbol][-1]) / 20.0
 
             # 多头入市
             # 跳空高开
-            if ctx.close[1] < ctx.tt20['max'][2] and ctx.open > ctx.tt20['max'][1] and self.num_unit == 0:
-                self.n20 = self.N20
+            if ctx.close[1] < ctx.tt20['max'][2] and ctx.open > ctx.tt20['max'][1] and RANDOM and\
+                    self.num_unit_mul[ctx.symbol] == 0 and Stopbuy(ctxdate=ctx[ctx.symbol].datetime):
+                if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=1):
+                    self.candicates[ctx.symbol] = 'buy 1a'
 
-                _unit = self.risk_ctl.unitctl(ctx, self.n20)
-                if _unit > 0:
-                    _open = copy.deepcopy(ctx.open)
-                    self.breakpoint.append([_open, _unit, 'buy'])
-                    ctx.buy(ctx.open, _unit)
-                    self.num_unit += 1
-                    self.display(ctx, 'buy')
-            elif ctx.close[1] < ctx.tt20['max'][2] and ctx.high > ctx.tt20['max'][1] and self.num_unit == 0:
-                self.n20 = self.N20
-                _unit = self.risk_ctl.unitctl(ctx, self.n20)
-                if _unit > 0:
-                    _price = copy.deepcopy(ctx.tt20['max'][1])
-                    self.breakpoint.append([_price, _unit, 'buy'])
-                    ctx.buy(_price, _unit)
-                    self.num_unit += 1
-                    self.display(ctx, 'buy')
+            elif ctx.close[1] < ctx.tt20['max'][2] and ctx.high > ctx.tt20['max'][1] and RANDOM and\
+                    self.num_unit_mul[ctx.symbol] == 0 and Stopbuy(ctxdate=ctx[ctx.symbol].datetime):
+                if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=1):
+                    self.candicates[ctx.symbol] = 'buy 1b'
 
             # 多头退市
             elif ctx.close[1] > ctx.tt10['min'][2] and ctx.low < ctx.tt10['min'][1] and \
-                            self.num_unit > 0:
-                all_units = 0
-                for lst in self.breakpoint:
-                    all_units += lst[1]
-                    assert lst[2] == 'buy'
-                self.breakpoint = []
-                assert isinstance(all_units, int)
-                assert all_units > 0
-                print ('sell_unit = %d' % all_units)
-                _price = self._cmp(ctx.high, ctx.low, ctx.tt10['min'][1])
-                ctx.sell(_price, all_units)
-                self.num_unit = 0
-                self.display(ctx, 'sell')
+                    self.num_unit_mul[ctx.symbol] > 0:
+                self.restraint.count_clear(symbol=ctx.symbol, num_unit_mul=self.num_unit_mul)
+                self.candicates[ctx.symbol] = 'sell 1'
 
             # 空头入市
             # 跳空低开
-            elif ctx.close[1] > ctx.tt20['min'][2] and ctx.open < ctx.tt20['min'][1] and \
-                    self.num_unit == 0:
-                self.n20 = self.N20
-                _unit = self.risk_ctl.unitctl(ctx, self.n20)
-                if _unit > 0:
-                    _open = copy.deepcopy(ctx.open)
-                    self.breakpoint.append([_open, _unit, 'short'])
-                    ctx.short(ctx.open, _unit)
-                    self.num_unit -= 1
-                    self.display(ctx, 'short')
-            elif ctx.close[1] > ctx.tt20['min'][2] and ctx.low < ctx.tt20['min'][1] and \
-                    self.num_unit == 0:
-                self.n20 = self.N20
-                _unit = self.risk_ctl.unitctl(ctx, self.n20)
-                if _unit > 0:
-                    _price = copy.deepcopy(ctx.tt20['min'][1])
-                    self.breakpoint.append([_price, _unit, 'short'])
-                    ctx.short(_price, _unit)
-                    self.num_unit -= 1
-                    self.display(ctx, 'short')
+            elif ctx.close[1] > ctx.tt20['min'][2] and ctx.open < ctx.tt20['min'][1] and RANDOM and\
+                    self.num_unit_mul[ctx.symbol] == 0 and Stopbuy(ctxdate=ctx[ctx.symbol].datetime):
+                if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=-1):
+                    self.candicates[ctx.symbol] = 'short 1a'
+            elif ctx.close[1] > ctx.tt20['min'][2] and ctx.low < ctx.tt20['min'][1] and RANDOM and\
+                    self.num_unit_mul[ctx.symbol] == 0 and Stopbuy(ctxdate=ctx[ctx.symbol].datetime):
+                if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=-1):
+                    self.candicates[ctx.symbol] = 'short 1b'
 
-            # 空头退市
+                # 空头退市
             elif ctx.close[1] < ctx.tt10['max'][2] and ctx.high > ctx.tt10['max'][1] and \
-                    self.num_unit < 0:
-                all_units = 0
-                for lst in self.breakpoint:
-                    all_units += lst[1]
-                    assert lst[2] == 'short'
-                self.breakpoint = []
-                assert isinstance(all_units, int)
-                assert all_units > 0
-                print ('cover_unit = %d' % all_units)
-                _price = self._cmp(ctx.high, ctx.low, ctx.tt10['max'][1])
-                ctx.cover(_price, all_units)
-                self.num_unit = 0
-                self.display(ctx, 'cover')
+                    self.num_unit_mul[ctx.symbol] < 0:
+                self.restraint.count_clear(symbol=ctx.symbol, num_unit_mul=self.num_unit_mul)
+                self.candicates[ctx.symbol] = 'cover 1'
 
-            # 多头加仓
-            elif 0 < self.num_unit < 4:
+                # 多头加仓
+            elif 0 < self.num_unit_mul[ctx.symbol] < 4:
                 # 跳空高开
-                if (self.breakpoint[-1][0] + self.n20 * 0.5) < ctx.open:
-                    _unit = self.risk_ctl.unitctl(ctx, self.n20)
+                if (self.breakpoint_mul[ctx.symbol][-1][0] + self.n20_mul[ctx.symbol] * 0.5) < ctx.open \
+                        and Stopbuy(ctxdate=ctx[ctx.symbol].datetime) and RANDOM:
+                    if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=1):
+                        self.candicates[ctx.symbol] = 'buy 2a'
+                elif (self.breakpoint_mul[ctx.symbol][-1][0] + self.n20_mul[ctx.symbol] * 0.5) < ctx.high\
+                        and Stopbuy(ctxdate=ctx[ctx.symbol].datetime) and RANDOM:
+                    if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=1):
+                        self.candicates[ctx.symbol] = 'buy 2b'
+                    # 多头止损
+                elif (self.breakpoint_mul[ctx.symbol][-1][0] - self.n20_mul[ctx.symbol] * 2) > ctx.low:
+                    self.restraint.count_clear(symbol=ctx.symbol, num_unit_mul=self.num_unit_mul)
+                    self.candicates[ctx.symbol] = 'sell 2'
+
+                    # 空头加仓
+            elif -4 < self.num_unit_mul[ctx.symbol] < 0:
+                # 跳空低开
+                if (self.breakpoint_mul[ctx.symbol][-1][0] - self.n20_mul[ctx.symbol] * 0.5) > ctx.open\
+                        and Stopbuy(ctxdate=ctx[ctx.symbol].datetime) and RANDOM:
+                    if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=-1):
+                        self.candicates[ctx.symbol] = 'short 2a'
+                elif (self.breakpoint_mul[ctx.symbol][-1][0] - self.n20_mul[ctx.symbol] * 0.5) > ctx.low\
+                        and Stopbuy(ctxdate=ctx[ctx.symbol].datetime) and RANDOM:
+                    if self.restraint.count(pcon=ctx.symbol.split('.')[0], num_unit_mul=self.num_unit_mul, trend=-1):
+                        self.candicates[ctx.symbol] = 'short 2b'
+                    # 空头止损
+                elif (self.breakpoint_mul[ctx.symbol][-1][0] + self.n20_mul[ctx.symbol] * 2) < ctx.high:
+                    self.restraint.count_clear(symbol=ctx.symbol, num_unit_mul=self.num_unit_mul)
+                    self.candicates[ctx.symbol] = 'cover 2'
+
+    def on_bar(self, ctx):
+        if self.candicates:
+            print self.candicates
+            for cand in self.candicates:
+                print('cand = %s' % cand)
+                cash = ctx.cash()
+
+                # force cover
+                if cash < 0:
+                    print ('### Current print = %f' % cash)
+                    if self.num_unit_mul[cand] > 0:
+                        all_units = 0
+                        for lst in self.breakpoint_mul[cand]:
+                            all_units += lst[1]
+                            assert lst[2] == 'buy'
+                        self.breakpoint_mul[cand] = []
+                        assert isinstance(all_units, int)
+                        assert all_units > 0
+                        print ('sell_unit = %d' % all_units)
+                        _price = self._cmp(ctx.high, ctx.low, ctx.tt10['min'][1])
+                        ctx.sell(_price, all_units)
+                        self.num_unit_mul[cand]  = 0
+                        self.display(ctx, 'sell-force', cand)
+                    elif self.num_unit_mul[cand]  < 0:
+                        all_units = 0
+                        for lst in self.breakpoint_mul[cand]:
+                            all_units += lst[1]
+                            assert lst[2] == 'short'
+                        self.breakpoint_mul[cand] = []
+                        assert isinstance(all_units, int)
+                        assert all_units > 0
+                        print ('cover_unit = %d' % all_units)
+                        _price = self._cmp(ctx.high, ctx.low, ctx.tt10['max'][1])
+                        ctx.cover(_price, all_units)
+                        self.num_unit_mul[cand]  = 0
+                        self.display(ctx, 'cover-force', cand)
+
+                    continue
+
+                # 空开跳高
+                if self.candicates[cand] == 'buy 1a':
+                    self.n20_mul[cand] = self.N20_mul[cand]
+                    _unit = self.risk_ctl.unitctl(ctx, self.n20_mul[cand])
                     if _unit > 0:
                         _open = copy.deepcopy(ctx.open)
-                        self.breakpoint.append([_open, _unit, 'buy'])
+                        self.breakpoint_mul[cand].append([_open, _unit, 'buy'])
                         ctx.buy(ctx.open, _unit)
-                        self.num_unit += 1
-                        self.display(ctx, 'buy')
-                elif (self.breakpoint[-1][0] + self.n20 * 0.5) < ctx.high:
-                    _unit = self.risk_ctl.unitctl(ctx, self.n20)
+                        self.num_unit_mul[cand] += 1
+                        self.display(ctx, 'buy', cand)
+                        print('策略%s, 执行%s %d units' % (ctx.strategy, self.candicates[cand], _unit))
+
+                # 多头开仓
+                elif self.candicates[cand] == 'buy 1b':
+                    self.n20_mul[cand] = self.N20_mul[cand]
+                    _unit = self.risk_ctl.unitctl(ctx, self.n20_mul[cand])
                     if _unit > 0:
-                        _price = round(self.breakpoint[-1][0] + self.n20 * 0.5, 2)
-                        self.breakpoint.append([_price, _unit, 'buy'])
+                        _price = copy.deepcopy(ctx.tt20['max'][1])
+                        self.breakpoint_mul[cand].append([_price, _unit, 'buy'])
                         ctx.buy(_price, _unit)
-                        self.num_unit += 1
-                        self.display(ctx, 'buy')
-                # 多头止损
-                elif (self.breakpoint[-1][0] - self.n20 * 2) > ctx.low:
+                        self.num_unit_mul[cand] += 1
+                        self.display(ctx, 'buy', cand)
+                    print('策略%s, 执行%s %d units' % (ctx.strategy, self.candicates[cand], _unit))
+
+                # 多头退市
+                elif self.candicates[cand] == 'sell 1':
                     all_units = 0
-                    p = round(self.breakpoint[-1][0] - self.n20 * 2, 2)
-                    _price = self._cmp(ctx.high, ctx.low, p)
-                    for lst in self.breakpoint:
+                    for lst in self.breakpoint_mul[cand]:
                         all_units += lst[1]
                         assert lst[2] == 'buy'
-                    self.breakpoint = []
+                    print('all units = %d' % all_units)
+                    self.breakpoint_mul[cand] = []
+                    assert isinstance(all_units, int)
+                    assert all_units > 0
+                    print ('sell_unit = %d' % all_units)
+
+                    _price = self._cmp(ctx.open, ctx.low, ctx.tt10['min'][1])
+                    ctx.sell(_price, all_units)
+                    self.num_unit_mul[cand] = 0
+                    self.display(ctx, 'sell', cand)
+                    print('策略%s, 执行%s %d units' % (ctx.strategy, self.candicates[cand], all_units))
+
+                # 空开跳低
+                elif self.candicates[cand] == 'short 1a':
+                    self.n20_mul[cand] = self.N20_mul[cand]
+                    _unit = self.risk_ctl.unitctl(ctx, self.n20_mul[cand])
+                    if _unit > 0:
+                        _open = copy.deepcopy(ctx.open)
+                        self.breakpoint_mul[cand].append([_open, _unit, 'short'])
+                        ctx.short(ctx.open, _unit)
+                        self.num_unit_mul[cand] -= 1
+                        self.display(ctx, 'short', cand)
+                    print('策略%s, 执行%s %d units' % (ctx.strategy, self.candicates[cand], _unit))
+
+                # 空头开仓
+                elif self.candicates[cand] == 'short 1b':
+                    self.n20_mul[cand] = self.N20_mul[cand]
+                    _unit = self.risk_ctl.unitctl(ctx, self.n20_mul[cand])
+                    if _unit > 0:
+                        _price = copy.deepcopy(ctx.tt20['min'][1])
+                        self.breakpoint_mul[cand].append([_price, _unit, 'short'])
+                        ctx.short(_price, _unit)
+                        self.num_unit_mul[cand] -= 1
+                        self.display(ctx, 'short', cand)
+                    print('策略%s, 执行%s %d units' % (ctx.strategy, self.candicates[cand], _unit))
+
+                # 空头退市
+                elif self.candicates[cand] == 'cover 1':
+                    all_units = 0
+                    for lst in self.breakpoint_mul[cand]:
+                        all_units += lst[1]
+                        assert lst[2] == 'short'
+                    print('all units = %d' % all_units)
+                    self.breakpoint_mul[cand] = []
+                    assert isinstance(all_units, int)
+                    assert all_units > 0
+                    print ('cover_unit = %d' % all_units)
+                    _price = self._cmp(ctx.high, ctx.open, ctx.tt10['max'][1])
+                    ctx.cover(_price, all_units)
+                    self.num_unit_mul[cand] = 0
+                    self.display(ctx, 'cover', cand)
+                    print('策略%s, 执行%s %d units' % (ctx.strategy, self.candicates[cand], all_units))
+
+                # 多头加仓 跳空高开
+                elif self.candicates[cand] == 'buy 2a':
+                    _unit = self.risk_ctl.unitctl(ctx, self.n20_mul[cand])
+                    if _unit > 0:
+                        _open = copy.deepcopy(ctx.open)
+                        self.breakpoint_mul[cand].append([_open, _unit, 'buy'])
+                        ctx.buy(ctx.open, _unit)
+                        self.num_unit_mul[cand] += 1
+                        self.display(ctx, 'buy', cand)
+                    print('策略%s, 执行%s %d units' % (ctx.strategy, self.candicates[cand], _unit))
+
+                #
+                elif self.candicates[cand] == 'buy 2b':
+                    _unit = self.risk_ctl.unitctl(ctx, self.n20_mul[cand])
+                    if _unit > 0:
+                        _price = round(self.breakpoint_mul[cand][-1][0] + self.n20_mul[cand] * 0.5, 2)
+                        self.breakpoint_mul[cand].append([_price, _unit, 'buy'])
+                        ctx.buy(_price, _unit)
+                        self.num_unit_mul[cand] += 1
+                        self.display(ctx, 'buy', cand)
+                    print('策略%s, 执行%s %d units' % (ctx.strategy, self.candicates[cand], _unit))
+
+                # 多头止损
+                elif self.candicates[cand] == 'sell 2':
+                    all_units = 0
+                    p = round(self.breakpoint_mul[cand][-1][0] - self.n20_mul[cand] * 2, 2)
+                    _price = self._cmp(ctx.open, ctx.low, p)
+                    for lst in self.breakpoint_mul[cand]:
+                        all_units += lst[1]
+                        assert lst[2] == 'buy'
+                    print('all units = %d' % all_units)
+                    self.breakpoint_mul[cand] = []
                     assert isinstance(all_units, int)
                     assert all_units > 0
                     print ('sell_unit = %d' % all_units)
 
                     ctx.sell(_price, all_units)
-                    self.num_unit = 0
-                    self.display(ctx, 'sell')
+                    self.num_unit_mul[cand] = 0
+                    self.display(ctx, 'sell', cand)
+                    print('策略%s, 执行%s %d units' % (ctx.strategy, self.candicates[cand], all_units))
 
-            # 空头加仓
-            elif -4 < self.num_unit < 0:
-                # 跳空低开
-                if (self.breakpoint[-1][0] - self.n20 * 0.5) > ctx.open:
-                    _unit = self.risk_ctl.unitctl(ctx, self.n20)
+                # 空头加仓 跳空低开
+                elif self.candicates[cand] == 'short 2a':
+                    _unit = self.risk_ctl.unitctl(ctx, self.n20_mul[cand])
                     if _unit > 0:
                         _open = copy.deepcopy(ctx.open)
-                        self.breakpoint.append([_open, _unit, 'short'])
+                        self.breakpoint_mul[cand].append([_open, _unit, 'short'])
                         ctx.short(ctx.open, _unit)
-                        self.num_unit -= 1
-                        self.display(ctx, 'short')
-                elif (self.breakpoint[-1][0] - self.n20 * 0.5) > ctx.low:
-                    _unit = self.risk_ctl.unitctl(ctx, self.n20)
+                        self.num_unit_mul[cand] -= 1
+                        self.display(ctx, 'short', cand)
+                    print('策略%s, 执行%s %d units' % (ctx.strategy, self.candicates[cand], _unit))
+
+                #
+                elif self.candicates[cand] == 'short 2b':
+                    _unit = self.risk_ctl.unitctl(ctx, self.n20_mul[cand])
                     if _unit > 0:
-                        _price = round(self.breakpoint[-1][0] - self.n20 * 0.5, 2)
-                        self.breakpoint.append([_price, _unit, 'short'])
+                        _price = round(self.breakpoint_mul[cand][-1][0] - self.n20_mul[cand] * 0.5, 2)
+                        self.breakpoint_mul[cand].append([_price, _unit, 'short'])
                         ctx.short(_price, _unit)
-                        self.num_unit -= 1
-                        self.display(ctx, 'short')
+                        self.num_unit_mul[cand] -= 1
+                        self.display(ctx, 'short', cand)
+                    print('策略%s, 执行%s %d units' % (ctx.strategy, self.candicates[cand], _unit))
+
                 # 空头止损
-                elif (self.breakpoint[-1][0] + self.n20 * 2) < ctx.high:
+                elif self.candicates[cand] == 'cover 2':
                     all_units = 0
-                    p = round(self.breakpoint[-1][0] + self.n20 * 2, 2)
-                    _price = self._cmp(ctx.high, ctx.low, p)
-                    for lst in self.breakpoint:
+                    p = round(self.breakpoint_mul[cand][-1][0] + self.n20_mul[cand] * 2, 2)
+                    _price = self._cmp(ctx.high, ctx.open, p)
+                    for lst in self.breakpoint_mul[cand]:
                         all_units += lst[1]
                         assert lst[2] == 'short'
-                    self.breakpoint = []
+                    print('all units = %d' % all_units)
+                    self.breakpoint_mul[cand] = []
                     assert isinstance(all_units, int)
                     assert all_units > 0
                     print ('cover_unit = %d' % all_units)
                     ctx.cover(_price, all_units)
-                    self.num_unit = 0
-                    self.display(ctx, 'cover')
+                    self.num_unit_mul[cand] = 0
+                    self.display(ctx, 'cover', cand)
+                    print('策略%s, 执行%s %d units' % (ctx.strategy, self.candicates[cand], all_units))
+
+            self.candicates.clear()
 
     def on_exit(self, ctx):
         return
 
-    def display(self, ctx, name='nameless'):
+    def display(self, ctx, name='nameless', cand='nameless'):
         cash = ctx.cash()
         #print ('\n')
         print ('**************  20 Days  **************')
-        print ('N20 = %f, N = %f' % (self.n20, self.N[-1]))
+        print ('N20 = %f, N = %f' % (self.n20_mul[cand], self.N_mul[cand][-1]))
 
-        print('%s %s; Number of Units = %d' % (name, ctx.symbol, self.num_unit))
+        print('%s %s; Number of Units = %d' % (name, cand, self.num_unit_mul[cand]))
         print ('current price: %f, cash = %f, equity = %f' % (ctx.close, cash, ctx.equity()))
         if name == 'buy' or name == 'sell' or name == 'sell-force':
             tag = 'long'
@@ -903,7 +1104,10 @@ class DemoStrategy1(Strategy):
             tag = 'short'
         else:
             tag = 'unkonwn'
-        print (ctx.position(tag, 'BB.SHFE'))
+        # print (ctx.position(tag, 'BB.SHFE'))
+        print ('datetime = %s' % str(ctx.datetime))
+
+        MESSAGE.get_info(cash, name, cand=cand)
 
     def _cmp(self, a, b, c):
         lst = [a, b, c]
@@ -911,292 +1115,69 @@ class DemoStrategy1(Strategy):
         return lst[1]
 
 
-class MainStrategy1(Strategy):
-    """ 策略 用户自定义倍率 """
+class Strengthtt(Strategy):
+    pass
 
 
-    def on_init(self, ctx):
-        """初始化数据"""
+class Beforehandtt(Strategy):
+    pass
 
-        self.tt = Default.get_tt()
 
-        ctx.ttin = Turtle(ctx.close, self.tt['IN'], 'ttin', ('r', 'g'))
-        ctx.ttout = Turtle(ctx.close, self.tt['OUT'], 'ttout', ('y', 'b'))
+class ATRTurtle(Strategy):
+    pass
 
-        self.num_unit = 0
-        self.max_unit = Default.get_maxunit()
-        self.N = [0, ]
-        self.N20 = 0.0
-        self.n20 = 0.0
 
-        self.oc = Operation_cycle()
-
-        self.breakpoint = []
-
-        self.predict = Predict_module()
-
-        self.risk_ctl = Risk_ctl(ctx)
-
-    def on_bar(self, ctx):
-        _maxunit = self.max_unit * -1
-        maxunit = self.max_unit
-        if ctx.curbar > 1:
-            self.N.append(max((ctx.high - ctx.close[1]), (ctx.close[1] - ctx.low), (ctx.high - ctx.low)))
-
-            #if ctx.curbar < 20:
-                #print self.N[-1]
-
-            if ctx.curbar == self.tt['N']:
-                for i in range(1, self.tt['N']):
-                    self.N20 += self.N[i]
-                #print('N20 = %f, N = %f' % (self.N20, self.N20 / len(self.N)))
-                self.N20 /= len(self.N)
-
-        if ctx.curbar > self.tt['N']:
-            self.N20 = (self.N20 * (self.tt['N'] - 1) + self.N[-1]) / self.tt['N'] * 1.0
-            op_cycle = self.oc.counter()
-            cash = ctx.cash()
-
-            # force cover
-            if cash < 0:
-                print ('### Current print = %f' % cash)
-                if self.num_unit > 0:
-                    all_units = 0
-                    for lst in self.breakpoint:
-                        all_units += lst[1]
-                        assert lst[2] == 'buy'
-                    self.breakpoint = []
-                    assert isinstance(all_units, int)
-                    assert all_units > 0
-                    print ('sell_unit = %d' % all_units)
-                    _price = self._cmp(ctx.high, ctx.low, ctx.ttout['min'][1])
-                    ctx.sell(_price, all_units)
-                    self.num_unit = 0
-                    self.display(ctx, 'sell-force')
-                elif self.num_unit < 0:
-                    all_units = 0
-                    for lst in self.breakpoint:
-                        all_units += lst[1]
-                        assert lst[2] == 'short'
-                    self.breakpoint = []
-                    assert isinstance(all_units, int)
-                    assert all_units > 0
-                    print ('cover_unit = %d' % all_units)
-                    _price = self._cmp(ctx.high, ctx.low, ctx.ttout['max'][1])
-                    ctx.cover(_price, all_units)
-                    self.num_unit = 0
-                    self.display(ctx, 'cover-force')
-
-            # 多头入市
-            # 跳空高开
-            if ctx.close[1] < ctx.ttin['max'][2] and ctx.open > ctx.ttin['max'][1] and self.num_unit == 0 and\
-                    op_cycle\
-                    and self.predict.signal(ctx.curbar) >= 0:
-                self.n20 = self.N20
-                _unit = self.risk_ctl.unitctl(ctx, self.n20)
-                if _unit > 0:
-                    _open = copy.deepcopy(ctx.open)
-                    self.breakpoint.append([_open, _unit, 'buy'])
-                    ctx.buy(ctx.open, _unit)
-                    self.num_unit += 1
-                    self.display(ctx, 'buy')
-            elif ctx.close[1] < ctx.ttin['max'][2] and ctx.high > ctx.ttin['max'][1] and self.num_unit == 0 and\
-                    op_cycle\
-                    and self.predict.signal(ctx.curbar) >= 0:
-                self.n20 = self.N20
-                _unit = self.risk_ctl.unitctl(ctx, self.n20)
-                if _unit > 0:
-                    _price = copy.deepcopy(ctx.ttin['max'][1])
-                    self.breakpoint.append([_price, _unit, 'buy'])
-                    ctx.buy(_price, _unit)
-                    self.num_unit += 1
-                    self.display(ctx, 'buy')
-
-            # 多头退市
-            elif ctx.close[1] > ctx.ttout['min'][2] and ctx.low < ctx.ttout['min'][1] and \
-                    self.num_unit > 0 and\
-                    op_cycle:
-                all_units = 0
-                for lst in self.breakpoint:
-                    all_units += lst[1]
-                    assert lst[2] == 'buy'
-                self.breakpoint = []
-                assert isinstance(all_units, int)
-                assert all_units > 0
-                print ('sell_unit = %d' % all_units)
-                _price = self._cmp(ctx.high, ctx.low, ctx.ttout['min'][1])
-                ctx.sell(_price, all_units)
-                self.num_unit = 0
-                self.display(ctx, 'sell')
-
-            # 空头入市
-            # 跳空低开
-            elif ctx.close[1] > ctx.ttin['min'][2] and ctx.open < ctx.ttin['min'][1] and \
-                    self.num_unit == 0 and\
-                    op_cycle\
-                    and self.predict.signal(ctx.curbar) <= 0:
-                self.n20 = self.N20
-                _unit = self.risk_ctl.unitctl(ctx, self.n20)
-                if _unit > 0:
-                    _open = copy.deepcopy(ctx.open)
-                    self.breakpoint.append([_open, _unit, 'short'])
-                    ctx.short(ctx.open, _unit)
-                    self.num_unit -= 1
-                    self.display(ctx, 'short')
-            elif ctx.close[1] > ctx.ttin['min'][2] and ctx.low < ctx.ttin['min'][1] and \
-                    self.num_unit == 0 and\
-                    op_cycle\
-                    and self.predict.signal(ctx.curbar) <= 0:
-                self.n20 = self.N20
-                _unit = self.risk_ctl.unitctl(ctx, self.n20)
-                if _unit > 0:
-                    _price = copy.deepcopy(ctx.ttin['min'][1])
-                    self.breakpoint.append([_price, _unit, 'short'])
-                    ctx.short(_price, _unit)
-                    self.num_unit -= 1
-                    self.display(ctx, 'short')
-
-            # 空头退市
-            elif ctx.close[1] < ctx.ttout['max'][2] and ctx.high > ctx.ttout['max'][1] and \
-                    self.num_unit < 0 and\
-                    op_cycle:
-                all_units = 0
-                for lst in self.breakpoint:
-                    all_units += lst[1]
-                    assert lst[2] == 'short'
-                self.breakpoint = []
-                assert isinstance(all_units, int)
-                assert all_units > 0
-                print ('cover_unit = %d' % all_units)
-                _price = self._cmp(ctx.high, ctx.low, ctx.ttout['max'][1])
-                ctx.cover(_price, all_units)
-                self.num_unit = 0
-                self.display(ctx, 'cover')
-
-            # 多头加仓
-            elif 0 < self.num_unit < maxunit:
-                # 跳空高开
-                if (self.breakpoint[-1][0] + self.n20 * 0.5) < ctx.open and\
-                        op_cycle\
-                        and self.predict.signal(ctx.curbar) >= 0:
-                    _unit = self.risk_ctl.unitctl(ctx, self.n20)
-                    if _unit > 0:
-                        _open = copy.deepcopy(ctx.open)
-                        self.breakpoint.append([_open, _unit, 'buy'])
-                        ctx.buy(ctx.open, _unit)
-                        self.num_unit += 1
-                        self.display(ctx, 'buy')
-                elif (self.breakpoint[-1][0] + self.n20 * 0.5) < ctx.high and\
-                        op_cycle\
-                        and self.predict.signal(ctx.curbar) >= 0:
-                    _unit = self.risk_ctl.unitctl(ctx, self.n20)
-                    if _unit > 0:
-                        _price = round(self.breakpoint[-1][0] + self.n20 * 0.5, 2)
-                        self.breakpoint.append([_price, _unit, 'buy'])
-                        ctx.buy(_price, _unit)
-                        self.num_unit += 1
-                        self.display(ctx, 'buy')
-                # 多头止损
-                elif (self.breakpoint[-1][0] - self.n20 * 2) > ctx.low and\
-                        op_cycle:
-                    all_units = 0
-                    p = round(self.breakpoint[-1][0] - self.n20 * 2, 2)
-                    _price = self._cmp(ctx.high, ctx.low, p)
-                    for lst in self.breakpoint:
-                        all_units += lst[1]
-                        assert lst[2] == 'buy'
-                    self.breakpoint = []
-                    assert isinstance(all_units, int)
-                    assert all_units > 0
-                    print ('sell_unit = %d' % all_units)
-
-                    ctx.sell(_price, all_units)
-                    self.num_unit = 0
-                    self.display(ctx, 'sell')
-
-            # 空头加仓
-            elif _maxunit < self.num_unit < 0:
-                # 跳空低开
-                if (self.breakpoint[-1][0] - self.n20 * 0.5) > ctx.open and\
-                        op_cycle\
-                        and self.predict.signal(ctx.curbar) <= 0:
-                    _unit = self.risk_ctl.unitctl(ctx, self.n20)
-                    if _unit > 0:
-                        _open = copy.deepcopy(ctx.open)
-                        self.breakpoint.append([_open, _unit, 'short'])
-                        ctx.short(ctx.open, _unit)
-                        self.num_unit -= 1
-                        self.display(ctx, 'short')
-                elif (self.breakpoint[-1][0] - self.n20 * 0.5) > ctx.low and\
-                        op_cycle\
-                        and self.predict.signal(ctx.curbar) <= 0:
-                    _unit = self.risk_ctl.unitctl(ctx, self.n20)
-                    if _unit > 0:
-                        _price = round(self.breakpoint[-1][0] - self.n20 * 0.5, 2)
-                        self.breakpoint.append([_price, _unit, 'short'])
-                        ctx.short(_price, _unit)
-                        self.num_unit -= 1
-                        self.display(ctx, 'short')
-                # 空头止损
-                elif (self.breakpoint[-1][0] + self.n20 * 2) < ctx.high and\
-                        op_cycle:
-                    all_units = 0
-                    p = round(self.breakpoint[-1][0] + self.n20 * 2, 2)
-                    _price = self._cmp(ctx.high, ctx.low, p)
-                    for lst in self.breakpoint:
-                        all_units += lst[1]
-                        assert lst[2] == 'short'
-                    self.breakpoint = []
-                    assert isinstance(all_units, int)
-                    assert all_units > 0
-                    print ('cover_unit = %d' % all_units)
-                    ctx.cover(_price, all_units)
-                    self.num_unit = 0
-                    self.display(ctx, 'cover')
-
-    def on_symbol(self, ctx):
-        return
-
-    def on_exit(self, ctx):
-        return
-
-    def display(self, ctx, name='nameless'):
-        cash = ctx.cash()
-        #print ('\n')
-        print ('**************  Custom  **************')
-        print ('N20 = %f, N = %f' % (self.n20, self.N[-1]))
-
-        print('%s %s; Number of Units = %d' % (name, ctx.symbol, self.num_unit))
-        print ('current price: %f, cash = %f, equity = %f' % (ctx.close, cash, ctx.equity()))
-        if name == 'buy' or name == 'sell' or name == 'sell-force':
-            tag = 'long'
-        elif name == 'short' or name == 'cover' or name == 'cover-force':
-            tag = 'short'
-        else:
-            tag = 'unkonwn'
-        print (ctx.position(tag, 'BB.SHFE'))
-
-        """ ATTENTION: operation cycle reset signal !!! """
-        if FILTER != 1:
-            self.oc.counter(1)
-
-    def _cmp(self, a, b, c):
-        lst = [a, b, c]
-        lst.sort()
-        return lst[1]
+class ATRBeforehandtt(Strategy):
+    pass
 
 
 class RUN(object):
-    def __init__(self):
-        self.rst = [
-            ['profile', '20 Days'],
-            ['profile4', 'Custom']
-        ]
-        self.pf = dict()
+    def __init__(self, cts=CTS):
+        from mul_config import ML
+        from mul_config import OPEN
+        self.rst = []
+        self.pf = {}
 
-        set_symbols(CTS)
-        self.pf['profile'] = add_strategy([DemoStrategy('20 Days')], {'capital': CAPITAL})
-        self.pf['profile4'] = add_strategy([MainStrategy('Custom')], {'capital': CAPITAL})
+        '''
+        if ML:
+            self.rst = [
+                ['profile', '20 Days'],
+                ['profile4', 'Custom']
+            ]
+            self.pf = dict()
+            set_symbols(cts)
+            self.pf['profile'] = add_strategy([DemoStrategy('20 Days')], {'capital': CAPITAL})
+            self.pf['profile4'] = add_strategy([MainStrategy('Custom')], {'capital': CAPITAL})
+        else:
+            self.rst = [
+                ['profile', '20 Days'],
+                ['profile4', 'Custom']
+            ]
+            self.pf = dict()
+            set_symbols(cts)
+            self.pf['profile'] = add_strategy([DemoStrategy('20 Days')], {'capital': CAPITAL})
+            self.pf['profile4'] = add_strategy([MainStrategy('Custom')], {'capital': CAPITAL})
+        '''
+
+        set_symbols(cts)
+        for i in OPEN:
+            if OPEN[i]:
+                self.rst.append([i, i])
+                if i == 'Turtle':
+                    self.pf[i] = add_strategy([Turtle(i)], {'capital': CAPITAL})
+                elif i == 'Strength Turtle':
+                    self.pf[i] = add_strategy([Strengthtt(i)], {'capital': CAPITAL})
+                elif i == 'Beforehand Turtle':
+                    self.pf[i] = add_strategy([Beforehandtt(i)], {'capital': CAPITAL})
+                elif i == 'ATR Turtle':
+                    self.pf[i] = add_strategy([ATRTurtle(i)], {'capital': CAPITAL})
+                elif i == 'ATR Beforehand Turtle':
+                    self.pf[i] = add_strategy([ATRBeforehandtt(i)], {'capital': CAPITAL})
+
+        assert len(self.rst)
+
+
+
 
     def results(self):
         start = timeit.default_timer()
@@ -1206,6 +1187,8 @@ class RUN(object):
 
         filename = './Output/' + 'RESULT' + '.txt'
         f = open(filename, 'w')
+
+        MESSAGE.display()
 
         for pf in self.rst:
             curve = finance.create_equity_curve(self.pf[pf[0]].all_holdings())
@@ -1223,7 +1206,9 @@ class RUN(object):
                                  # curve.equity, figname)
 
             # Equity-curve
-            myplot.plot_curves([curve.equity], colors=['r'], names=[self.pf[pf[0]].name(0) + '-equity'])
+
+            #myplot.plot_curves([curve.equity], colors=['r'], names=[self.pf[pf[0]].name(0) + '-equity'])
+
             # myplot.plot_curves([curve.cash], colors=['g'], names=[self.pf[pf[0]].name(0) + '-cash'])
             # myplot.plot_curves([curve.returns], colors=['b'], names=[self.pf[pf[0]].name(0) + '-returns'])
             # myplot.plot_curves([curve.equity, curve.cash, curve.returns, curve.commission],
@@ -1232,72 +1217,12 @@ class RUN(object):
 
         f.close()
 
-'''
-if __name__ == '__main__':
-    from quantdigger.digger import finance, plotting
-    import myplot
 
-    set_symbols([CTS])
-    profile = add_strategy([DemoStrategy('20 Days')], {'capital': CAPITAL})
-    # profile2 = add_strategy([DemoStrategy2('55 Days')], {'capital': 10000000})
-    # profile3 = add_strategy([DemoStrategy3('20 Days + Predict')], {'capital': 10000000})
-    profile4 = add_strategy([MainStrategy('Custom')], {'capital': CAPITAL})
-
-    start = timeit.default_timer()
-    run()
-    stop = timeit.default_timer()
-    print "运行耗时: %d秒" % (stop - start)
-
-    # 打印组合1的统计信息
-    curve = finance.create_equity_curve(profile.all_holdings())
-    print '20 Days', finance.summary_stats(curve, 252 * 4 * 60)
-    # curve2 = finance.create_equity_curve(profile2.all_holdings())
-    # print '55 Days', finance.summary_stats(curve2, 252 * 4 * 60)
-    # curve3 = finance.create_equity_curve(profile3.all_holdings())
-    # print '20 Days + Predict', finance.summary_stats(curve3, 252 * 4 * 60)
-    curve4 = finance.create_equity_curve(profile4.all_holdings())
-    print 'Custom', finance.summary_stats(curve4, 252 * 4 * 60)
-
-    filename = './Output/' + Default.get_name() + '.txt'
-    with open(filename, 'w') as f:
-        f.write('\n 20 Days \n')
-        f.write(str(finance.summary_stats(curve, 252 * 4 * 60)))
-        # f.write('\n 55 Days \n')
-        # f.write(str(finance.summary_stats(curve2, 252 * 4 * 60)))
-        # f.write('\n 20 Days + Predict \n')
-        # f.write(str(finance.summary_stats(curve3, 252 * 4 * 60)))
-
-    figname = Default.get_name() + '20'
-    # figname2 = Default.get_name() + '55'
-    # figname3 = Default.get_name() + '22+Pred'
-    figname4 = Default.get_name() + 'Custom'
-
-    # K-line
-    myplot.plot_strategy(profile.data(0), profile.technicals(0), profile.deals(0), curve.equity, figname)
-    # myplot.plot_strategy(profile2.data(0), profile2.technicals(0), profile2.deals(0), curve2.equity, figname2)
-    # myplot.plot_strategy(profile3.data(0), profile3.technicals(0), profile3.deals(0), curve3.equity, figname3)
-    myplot.plot_strategy(profile4.data(0), profile4.technicals(0), profile4.deals(0), curve4.equity, figname4)
-
-    # Equity-curve
-    myplot.plot_curves([curve.equity], colors=['r'], names=[profile.name(0)])
-    myplot.plot_curves([curve4.equity], colors=['r'], names=[profile4.name(0)])
-    # myplot.plot_curves([curve.equity, curve2.equity, curve3.equity], colors=['r', 'b', 'g'],
-                       # names=[profile.name(0), profile2.name(0), profile3.name(0)])
-
-    myplot.show()
-
-'''
 
 if __name__ == '__main__':
-    from quantdigger.digger import finance, plotting
-    import myplot
-    import time
 
     # Reference.check()
     time.sleep(5)
     P = RUN()
     P.results()
     myplot.show()
-
-
-
