@@ -48,12 +48,12 @@ TT = {                  # 海龟相关数据（单位时间倍率）
 
 # Params of PCON
 HIGHRIS = {
-            'Bean': ['a', 'bb'],
+            'Bean': ['B', 'BB', 'A'],
             'Oil': [],
             'Gold & Silver': []
         }
 LOWRIS = {
-            'Copper like': ['cu', 'ag'],
+            'Copper like': ['CU', 'AG'],
             'Grain': []
         }
 OTHERS = {

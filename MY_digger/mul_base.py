@@ -31,6 +31,7 @@ FLAG = {
             '60days': False
 }
 
+FREQCOUNT = 500
 
 """
 class Reference(object):
@@ -229,6 +230,9 @@ class Restraint(object):
         print self.r.high
         print self.r.low
 
+        self.sum_up = 0
+        self.sum_down = 0
+
         for pcon in self.lst:
             pcon2 = pcon.split('1')[0]
             for i in self.r.high:
@@ -243,6 +247,66 @@ class Restraint(object):
                     self.num_up[i] = 0
                     self.num_down[i] = 0
 
+    def countall(self, status):
+        self.countclear()
+        for pcon in status:
+            for j in ['20min', '1h', '1day', '5days', '20days', '60days']:
+                if status[pcon].unit[j] > 0:
+                    self.sum_up += status[pcon].unit[j]
+                elif status[pcon].unit[j] < 0:
+                    self.sum_down += status[pcon].unit[j]
+
+
+            pcon2 = pcon.split('1')[0]
+            for i in self.r.high:
+                if pcon2 in self.r.high[i]:
+                    print '%s in high correlation [%s]' % (pcon, i)
+                    for j in ['20min', '1h', '1day', '5days', '20days', '60days']:
+                        if status[pcon].unit[j] > 0:
+                            self.num_up[i] += status[pcon].unit[j]
+                        elif status[pcon].unit[j] < 0:
+                            self.num_down[i] += status[pcon].unit[j]
+            for i in self.r.low:
+                if pcon2 in self.r.low[i]:
+                    print '%s in low correlation [%s]' % (pcon, i)
+                    for j in ['20min', '1h', '1day', '5days', '20days', '60days']:
+                        if status[pcon].unit[j] > 0:
+                            self.num_up[i] += status[pcon].unit[j]
+                        elif status[pcon].unit[j] < 0:
+                            self.num_down[i] += status[pcon].unit[j]
+
+
+    def countclear(self):
+        self.sum_up = 0
+        self.sum_down = 0
+
+        for i in self.r.high:
+            self.num_up[i] = 0
+            self.num_down[i] = 0
+
+        for i in self.r.low:
+            self.num_up[i] = 0
+            self.num_down[i] = 0
+
+    def ismaxnuit(self, pcon):
+        pcon2 = pcon.split('1')[0]
+        for i in self.r.high:
+            if pcon2 in self.r.high[i]:
+                if self.num_up[i] >= 6 or self.num_down[i] <= -6:
+                    print '%s >> MAXUNIT' % pcon
+                    return False
+        for i in self.r.low:
+            if pcon2 in self.r.low[i]:
+                if self.num_up[i] >= 8 or self.num_down[i] <= -8:
+                    print '%s >> MAXUNIT' % pcon
+                    return False
+        if self.sum_up >= 12 or self.sum_down <= -12:
+            print '%s >> MAXUNIT' % pcon
+            return False
+        return True
+
+
+    '''
     def count(self, pcon, num_unit_mul, trend):
         pcon2 = pcon.split('1')[0]
         for i in self.r.high:
@@ -327,7 +391,7 @@ class Restraint(object):
             return False
         else:
             return True
-
+    '''
 
 class Messages(object):
     def __init__(self, init_cash):
@@ -369,14 +433,32 @@ class Messages(object):
         print '\n'
 
 
-def Stopbuy(ctxdate, dateend=STOPBUY):
+def Stopbuy(ctxdate, dateend):
+    """
+    eg
+    2016-01-18 10:44:00
+    C1701.SHFE
+    """
+    print ctxdate
+    print dateend
 
-    if str(ctxdate) > dateend:
-        print '>> STOPBUY'
-        return False
-    else:
-        print '<< STOPBUY!'
+    y = str(ctxdate)[2:4]
+    m = str(ctxdate)[5:7]
+    ys = dateend.split('.')[0][-4:-2]
+    ms = dateend.split('.')[0][-2:]
+    # print(int(y), int(m), int(ys), int(ms))
+
+    if y == ys and m == ms:
+        print '%s >> STOPBUY' % dateend
         return True
+
+    return False
+
+def Stopall(freqcount):
+    if freqcount > FREQCOUNT:
+        print '%s >> freqcount' % freqcount
+        return True
+    return False
 
 class Activepcon(object):
     """to active some pcon by sort volume"""
@@ -384,18 +466,27 @@ class Activepcon(object):
     def __init__(self):
         self.pconact = {}
 
-    def refresh(self, symbol, vol):
+    def refresh(self, symbol, status):
         from mul_config import MAXCONTRACT
-        print '%s = %s' % (symbol, vol)
-        self.pconact[symbol] = vol
+        print '%s.vol = %s' % (symbol, status[symbol].vol)
+        self.pconact[symbol] = status[symbol].vol
         l = []
+        d = {}
         for i in self.pconact:
             for j in ['20min', '1h', '1day', '5days', '20days', '60days']:
-                l.append(self.pconact[i][j])
+                l.append(self.pconact[i][j] + 1000000 * abs(status[i].unit[j]))
+
+                if l[-1] != 0:
+                    d[l[-1]] = [i, j]
         l = sorted(l, reverse=True)
         self.level = l[-1] if len(l) <= MAXCONTRACT else l[MAXCONTRACT-1]
         print 'l = %s' % l
-
+        lst = []
+        for i in l:
+            if i != 0:
+                print d.get(i, None)
+                lst.append(d.get(i, None))
+        return lst
 
     def sort(self):
         pass
@@ -407,17 +498,13 @@ class Timecount(object):
         self.count = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
         self.count_half = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
         self.count_four = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
-        '''
-                      '10min': 0, '30min': 0, '3h': 0, '2days': 0, '10days': 0, '30days': 0,
-                      '80min': 0, '4h': 0, '4day': 0,              '80days': 0, '240days': 0}
-        '''
+
         date = str(ctx.datetime)
         self.preday = date.split(' ')[0].split('-')[2]
         self.prehour = date.split(' ')[1].split(':')[0]
         self.premin = date.split(' ')[1].split(':')[1]
         print date
-        print self.preday
-        '''2016-11-30 20:59:00'''
+        print self.preday   # eg '2016-11-30 20:59:00'
 
     def _count(self, ctx):
         date = str(ctx.datetime)
@@ -560,23 +647,50 @@ class Constatus(object):
             'nextbp': [],
             'stopbuy': False
         }
+
+        '''Status'''
+        self.unit = {'20min': 0,'1h': 0,'1day': 0,'5days': 0,'20days': 0,'60days': 0}
+        self.breakpoint = {'20min': [],'1h': [],'1day': [],'5days': [],'20days': [],'60days': []}
+        self.bpatrhalf = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
+        self.candicates = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
+
+        self._unit = {'20min': [],'1h': [],'1day': [],'5days': [],'20days': [],'60days': []}
+
+
+
         self.atr = {'20min': 0,'1h': 0,'1day': 0,'5days': 0,'20days': 0,'60days': 0}
-        self.atr_count = {'20min': [0, 1],'1h': [0, 1],'1day': [0, 1],'5days': [0, 1],'20days': [0, 1],'60days': [0, 1]}
         self.vol = {'20min': 0,'1h': 0,'1day': 0,'5days': 0,'20days': 0,'60days': 0}
+
+        self.atr_count = {'20min': [0, 1],'1h': [0, 1],'1day': [0, 1],'5days': [0, 1],'20days': [0, 1],'60days': [0, 1]}
         self.vol_count = {'20min': [0, 1],'1h': [0, 1],'1day': [0, 1],'5days': [0, 1],'20days': [0, 1],'60days': [0, 1]}
-        '''
+
         self.atrhalf = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
         self.atrfour = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
         self.atrhalf_count = {'20min': [0, 1], '1h': [0, 1], '1day': [0, 1], '5days': [0, 1], '20days': [0, 1],
                           '60days': [0, 1]}
         self.atrfour_count = {'20min': [0, 1], '1h': [0, 1], '1day': [0, 1], '5days': [0, 1], '20days': [0, 1],
                           '60days': [0, 1]}
-        '''
 
-    def _record(self, ctx, **kwargs):
+        self.maxmin = {'20min': [0, 0], '1h': [0, 0], '1day': [0, 0], '5days': [0, 0], '20days': [0, 0],
+                              '60days': [0, 0]}
+        self.maxminhalf = {'20min': [0, 0], '1h': [0, 0], '1day': [0, 0], '5days': [0, 0], '20days': [0, 0],
+                       '60days': [0, 0]}
+        self.maxminfour = {'20min': [0, 0], '1h': [0, 0], '1day': [0, 0], '5days': [0, 0], '20days': [0, 0],
+                       '60days': [0, 0]}
+
+        self.maxmin_count = {'20min': [0, 9999], '1h': [0, 9999], '1day': [0, 9999], '5days': [0, 9999],
+                             '20days': [0, 9999], '60days': [0, 9999]}
+        self.maxminhalf_count = {'20min': [0, 9999], '1h': [0, 9999], '1day': [0, 9999], '5days': [0, 9999],
+                             '20days': [0, 9999], '60days': [0, 9999]}
+        self.maxminfour_count = {'20min': [0, 9999], '1h': [0, 9999], '1day': [0, 9999], '5days': [0, 9999],
+                             '20days': [0, 9999], '60days': [0, 9999]}
+
+
+
+    def _record(self, ctx, opt=None):
         """record status in every minutes"""
-        if kwargs:
-            for i in kwargs:
+        if opt:
+            for i in opt:
                 assert i in ['activation', 'units', 'breakpoint', 'stoploss', 'nextbp', 'stopbuy']
 
 
@@ -584,33 +698,70 @@ class Constatus(object):
         """compute ATR in 6 period"""
         if period:
             '''compute ATR and VOL in different period'''
-            for p in period[0]:
-                self.atr[p] = self.atr_count[p][0] / self.atr_count[p][1]
-                self.atr_count[p][0] = self.atr_count[p][1] = 1
-                '''
-                self.atrhalf[p] = self.atrhalf_count[p][0] / self.atrhalf_count[p][1]
-                self.atrhalf_count[p][0] = self.atrhalf_count[p][1] = 1
-                self.atrfour[p] = self.atrfour_count[p][0] / self.atrfour_count[p][1]
-                self.atrfour_count[p][0] = self.atrfour_count[p][1] = 1
-                '''
-                self.vol[p] = self.vol_count[p][0] / self.vol_count[p][1]
-                self.vol_count[p][0] = self.vol_count[p][1] = 1
+            if len(period[0]):
+                for p in period[0]:
+                    self.atr[p] = self.atr_count[p][0] / self.atr_count[p][1]
+                    self.atr_count[p][0] = self.atr_count[p][1] = 1
+                    self.vol[p] = self.vol_count[p][0] / self.vol_count[p][1]
+                    self.vol_count[p][0] = self.vol_count[p][1] = 1
+
+                    self.maxmin[p] = self.maxmin_count[p][:]
+                    self.maxmin_count[p] = [0, 9999]
+                    assert self.maxmin[p] != self.maxmin_count[p]
+                print 'maxmin = %s' % self.maxmin
+
+            if len(period[1]):
+                for p in period[1]:
+                    self.atrhalf[p] = self.atrhalf_count[p][0] / self.atrhalf_count[p][1]
+                    self.atrhalf_count[p][0] = self.atrhalf_count[p][1] = 1
+
+                    self.maxminhalf[p] = self.maxminhalf_count[p][:]
+                    self.maxminhalf_count[p] = [0, 9999]
+                    assert self.maxminhalf[p] != self.maxminhalf_count[p]
+
+            if len(period[2]):
+                for p in period[2]:
+                    self.atrfour[p] = self.atrfour_count[p][0] / self.atrfour_count[p][1]
+                    self.atrfour_count[p][0] = self.atrfour_count[p][1] = 1
+
+                    self.maxminfour[p] = self.maxminfour_count[p][:]
+                    self.maxminfour_count[p] = [0, 9999]
+                    assert self.maxminfour[p] != self.maxminfour_count[p]
+
             # print 'atr = %s' % self.atr
         else:
             '''count ATR and VOL in every minute'''
             N = max((ctx.high - ctx.close[1]), (ctx.close[1] - ctx.low), (ctx.high - ctx.low))
+            MAX = ctx.high[1]
+            MIN = ctx.low[1]
             vol = ctx.volume
             for i in self.atr_count:
                 self.atr_count[i][0] += N
                 self.atr_count[i][1] += 1
-                '''
+
                 self.atrhalf_count[i][0] += N
                 self.atrhalf_count[i][1] += 1
                 self.atrfour_count[i][0] += N
                 self.atrfour_count[i][1] += 1
-                '''
+
                 self.vol_count[i][0] += vol
                 self.vol_count[i][1] += 1
+
+                if MAX > self.maxmin_count[i][0]:
+                    self.maxmin_count[i][0] = MAX
+                if MIN < self.maxmin_count[i][1]:
+                    self.maxmin_count[i][1] = MIN
+
+                if MAX > self.maxminhalf_count[i][0]:
+                    self.maxminhalf_count[i][0] = MAX
+                if MIN < self.maxminhalf_count[i][1]:
+                    self.maxminhalf_count[i][1] = MIN
+
+                if MAX > self.maxminfour_count[i][0]:
+                    self.maxminfour_count[i][0] = MAX
+                if MIN < self.maxminfour_count[i][1]:
+                    self.maxminfour_count[i][1] = MIN
+
 
 
 __all__ = [
@@ -625,6 +776,7 @@ __all__ = [
     'Restraint',
     'Messages',
     'Stopbuy',
+    'Stopall',
     'Activepcon',
     'Timecount',
     'Constatus'
