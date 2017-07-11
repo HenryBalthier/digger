@@ -15,7 +15,7 @@ CAPITAL = Default.get_capital()
 RANDOM = Default.get_random()
 MESSAGE = Messages(CAPITAL)
 
-
+# history tt
 class DemoStrategy(Strategy):
 
     def on_init(self, ctx):
@@ -360,7 +360,7 @@ class DemoStrategy(Strategy):
         lst.sort()
         return lst[1]
 
-
+# history strtt
 class MainStrategy(Strategy):
 
     def on_init(self, ctx):
@@ -733,6 +733,9 @@ ATR Turtle
 ATR Beforehand Turtle
 '''
 
+
+# TODO for all : force cover
+# done
 class Turtle(Strategy):
 
     def on_init(self, ctx):
@@ -777,6 +780,7 @@ class Turtle(Strategy):
         self.freqcount = {}
 
     def on_symbol(self, ctx):
+        """产生交易信号"""
 
         #self.count = Timecount(ctx)
 
@@ -991,6 +995,7 @@ class Turtle(Strategy):
         '''
 
     def on_bar(self, ctx):
+        """交易信号处理"""
         if self.candicates:
             print 'self.candicates = %s' % self.candicates
 
@@ -1355,21 +1360,1532 @@ class Turtle(Strategy):
         lst.sort()
         return lst[1]
 
-
+# done
 class Strengthtt(Strategy):
-    pass
+    def on_init(self, ctx):
+        """初始化数据"""
+        '''
+        d = {
+            '20min': 20, '1h': 60, '1day': 365, '5days': 1825, '20days': 7300, '60days': 21900,
+            '10min': 10, '30min': 30, '3h': 180, '2days': 730, '10days': 3650, '30days': 10950,
+            '80min': 80, '4h': 240, '4day': 1460,            '80days': 292000, '240days': 87600
+        }
+        ctx.tt = {}
+        for i in d:
+            print i
+            ctx.tt[i] = Turtle_base(ctx.close, d[i], i, ('r', 'g'))
+        '''
+        ctx.tt20 = Turtle_base(ctx.close, 20, 'tt20', ('r', 'g'))
+        ctx.tt10 = Turtle_base(ctx.close, 10, 'tt10', ('y', 'b'))
+
+        self.N_mul = dict()
+        self.N20_mul = dict()
+        self.n20_mul = dict()
+        self.num_unit_mul = dict()
+        self.breakpoint_mul = dict()
+
+        self.risk_ctl = Risk_ctl(ctx)
+        self.restraint = Restraint()
+
+        self.L = []
+
+        self.candicates = dict()
+
+        print 'ctx.symbol = %s' % ctx.symbol.split('.')[0]      # eg. 'A1601'
+
+        '''********************************'''
+
+        self.count = Timecount(ctx)
+        print self.count
+
+        self.status = {}
+        self.timecount = {}
+        self.activepcon = Activepcon()
+        self.freqcount = {}
+
+        self.predict = Predict_module(CTS)
+
+    def on_symbol(self, ctx):
+
+        #self.count = Timecount(ctx)
+
+        if ctx.curbar == 1:
+            self.N_mul[ctx.symbol] = []
+            self.N20_mul[ctx.symbol] = 0.0
+            self.n20_mul[ctx.symbol] = 0.0
+            self.num_unit_mul[ctx.symbol] = 0
+            self.breakpoint_mul[ctx.symbol] = []
+
+            '''ATR type: 1. 20min 2. 1h 3. 1day 4. 5days 5. 20days 6. 60days'''
+            self.status[ctx.symbol] = Constatus()
+            self.timecount[ctx.symbol] = Timecount(ctx)
+            #self.activepcon = Activepcon()
+            self.freqcount[ctx.symbol] = 0
 
 
+        if ctx.curbar > 1:
+            self.L.append(max((ctx.high - ctx.close[1]), (ctx.close[1] - ctx.low), (ctx.high - ctx.low)))
+            self.N_mul[ctx.symbol] = self.L
+
+            import time
+
+            print ctx.datetime, ctx.open, ctx.symbol, ctx.volume
+
+            isactive = self.timecount[ctx.symbol]._count(ctx)      #return if period active
+            self.status[ctx.symbol]._ATR(ctx)
+
+            lst = []
+            if isactive:
+                self.status[ctx.symbol]._ATR(period=isactive)
+
+                lst = self.activepcon.refresh(ctx.symbol, self.status)
+
+                if '1day' in isactive[0]:
+                    for i in self.freqcount:
+                        self.freqcount[i] = 0
+
+
+
+
+            '''Strategy start!'''
+            for period in ['20min', '1h', '1day', '5days', '20days', '60days']:
+                if self.status[ctx.symbol].atrfour[period] and [ctx.symbol, period] in lst:
+                    '''write strategy here'''
+                    pcon = self.status[ctx.symbol]
+                    self.restraint.countall(self.status)
+
+                    #print '^^^^^^^^^^^^^^^^^^^'
+                    #print ctx.close[1], pcon.maxmin[period][0], ctx.high
+                    stopall = Stopall(self.freqcount[ctx.symbol])
+
+                    stopbuy = Stopbuy(ctxdate=ctx[ctx.symbol].datetime, dateend=ctx.symbol) and\
+                              self.restraint.ismaxnuit(ctx.symbol) and stopall
+
+
+                    if pcon.unit[period] == 0:
+                        # 多头入市
+                        if ctx.close[1] < pcon.maxmin[period][0] and ctx.high >= pcon.maxmin[period][0] and\
+                                not stopbuy and self.predict.signal(ctx.symbol, ctx.curbar):
+                            print '-----------------------'
+                            print ctx.symbol, period, 'buy 1'
+                            pcon.candicates[period] = 'buy 1'
+                            self.candicates[ctx.symbol] = True
+                            assert pcon.candicates[period] == self.status[ctx.symbol].candicates[period]
+
+
+                        # 空头入市
+                        elif ctx.close[1] > pcon.maxmin[period][1] and ctx.low <= pcon.maxmin[period][1] and \
+                                not stopbuy and self.predict.signal(ctx.symbol, ctx.curbar):
+                            print '-----------------------'
+                            print ctx.symbol, period, 'short 1'
+                            pcon.candicates[period] = 'short 1'
+                            self.candicates[ctx.symbol] = True
+                            assert pcon.candicates[period] == self.status[ctx.symbol].candicates[period]
+
+                    elif 0 < pcon.unit[period] < 4:
+                        # 多头加仓
+                        if ctx.high >= pcon.breakpoint[period][-1] + pcon.bpatrhalf[period] and \
+                                not stopbuy and self.predict.signal(ctx.symbol, ctx.curbar):
+                            print '-----------------------'
+                            print ctx.symbol, period, 'buy 2'
+                            pcon.candicates[period] = 'buy 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                    elif -4 < pcon.unit[period] < 0:
+                        # 空头加仓
+                        if ctx.low <= pcon.breakpoint[period][-1] - pcon.bpatrhalf[period] and \
+                                not stopbuy and self.predict.signal(ctx.symbol, ctx.curbar):
+                            print '-----------------------'
+                            print ctx.symbol, period, 'short 2'
+                            pcon.candicates[period] = 'short 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                    elif 0 < pcon.unit[period]:
+                        # 多头退市
+                        if (ctx.close[1] > pcon.maxminhalf[period][1] >= ctx.low or
+                                Timefour(pcon.atrfour_count[period][0]) or BackStrengh(pcon.atrhalf[period])) and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'sell 2'
+                            pcon.candicates[period] = 'sell 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                        # 多头止损
+                        elif ctx.low <= pcon.breakpoint[period][-1] - pcon.bpatrhalf[period] and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'sell 1'
+                            pcon.candicates[period] = 'sell 1'
+                            self.candicates[ctx.symbol] = True
+
+
+                    elif pcon.unit[period] < 0:
+                        # 空头退市
+                        if (ctx.close[1] < pcon.maxminhalf[period][0] <= ctx.high or
+                                Timefour(pcon.atrfour_count[period][0]) or BackStrengh(pcon.atrhalf[period])) and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'cover 2'
+                            pcon.candicates[period] = 'cover 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                        # 空头止损
+                        elif ctx.high >= pcon.breakpoint[period][-1] + pcon.bpatrhalf[period] and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'cover 1'
+                            pcon.candicates[period] = 'cover 1'
+                            self.candicates[ctx.symbol] = True
+
+
+    def on_bar(self, ctx):
+        if self.candicates:
+            print 'self.candicates = %s' % self.candicates
+
+            for cand in self.candicates:
+                pcon = self.status[cand]
+                for period in ['20min', '1h', '1day', '5days', '20days', '60days']:
+                    print('cand = %s' % cand)
+                    # cash = ctx.cash()
+                    print pcon.candicates
+
+                    # force cover
+                    '''
+                    if cash < 0:
+                        print ('### Current print = %f' % cash)
+                        if self.num_unit_mul[cand] > 0:
+                            all_units = 0
+                            for lst in self.breakpoint_mul[cand]:
+                                all_units += lst[1]
+                                assert lst[2] == 'buy'
+                            self.breakpoint_mul[cand] = []
+                            assert isinstance(all_units, int)
+                            assert all_units > 0
+                            print ('sell_unit = %d' % all_units)
+                            _price = self._cmp(ctx.high, ctx.low, ctx.tt10['min'][1])
+                            ctx.sell(_price, all_units)
+                            self.num_unit_mul[cand]  = 0
+                            self.display(ctx, 'sell-force', cand)
+                        elif self.num_unit_mul[cand] < 0:
+                            all_units = 0
+                            for lst in self.breakpoint_mul[cand]:
+                                all_units += lst[1]
+                                assert lst[2] == 'short'
+                            self.breakpoint_mul[cand] = []
+                            assert isinstance(all_units, int)
+                            assert all_units > 0
+                            print ('cover_unit = %d' % all_units)
+                            _price = self._cmp(ctx.high, ctx.low, ctx.tt10['max'][1])
+                            ctx.cover(_price, all_units)
+                            self.num_unit_mul[cand]  = 0
+                            self.display(ctx, 'cover-force', cand)
+
+                        continue
+                    '''
+
+                    # 多头开仓
+                    if pcon.candicates[period] == 'buy 1':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            _price = self._cmp(ctx.open, ctx.high, pcon.maxmin[period][0])
+                            ctx.buy(_price, _unit)
+                            self.display(ctx, 'buy', cand)
+
+                            pcon.unit[period] = 1
+                            pcon.breakpoint[period].append(pcon.maxmin[period][0])
+                            pcon.bpatrhalf[period] = pcon.atrhalf[period]
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+
+                    # 多头退市
+                    if pcon.candicates[period] == 'sell 2':
+                        _unit = sum(pcon._unit[period])
+                        _price = self._cmp(ctx.open, ctx.low, pcon.maxmin[period][1])
+                        ctx.sell(_price, _unit)
+                        self.display(ctx, 'sell', cand)
+
+                        pcon.unit[period] = 0
+                        pcon.breakpoint[period] = []
+                        pcon.bpatrhalf[period] = 0
+                        pcon._unit[period] = []
+
+                        self.freqcount[cand] += 1
+
+                    # 空头开仓
+                    if pcon.candicates[period] == 'short 1':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            _price = self._cmp(ctx.open, ctx.low, pcon.maxmin[period][1])
+                            ctx.short(_price, _unit)
+                            self.display(ctx, 'short', cand)
+
+                            pcon.unit[period] = 1
+                            pcon.breakpoint[period].append(pcon.maxmin[period][1])
+                            pcon.bpatrhalf[period] = pcon.atrhalf[period]
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+                    # 空头退市
+                    if pcon.candicates[period] == 'cover 2':
+                        _unit = sum(pcon._unit[period])
+                        _price = self._cmp(ctx.open, ctx.high, pcon.maxmin[period][0])
+                        ctx.cover(_price, _unit)
+                        self.display(ctx, 'cover', cand)
+
+                        pcon.unit[period] = 0
+                        pcon.breakpoint[period] = []
+                        pcon.bpatrhalf[period] = 0
+                        pcon._unit[period] = []
+
+                        self.freqcount[cand] += 1
+
+
+                    # 多头加仓
+                    if pcon.candicates[period] == 'buy 2':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            p = pcon.breakpoint[period][-1] + pcon.bpatrhalf[period]
+                            _price = self._cmp(ctx.open, ctx.high, p)
+                            ctx.buy(_price, _unit)
+                            self.display(ctx, 'buy', cand)
+
+                            pcon.unit[period] += 1
+                            pcon.breakpoint[period].append(pcon.breakpoint[period][-1] + pcon.bpatrhalf[period])
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+
+                    # 空头加仓
+                    if pcon.candicates[period] == 'short 2':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            p = pcon.breakpoint[period][-1] - pcon.bpatrhalf[period]
+                            _price = self._cmp(ctx.open, ctx.low, p)
+                            ctx.short(_price, _unit)
+                            self.display(ctx, 'short', cand)
+
+                            pcon.unit[period] -= 1
+                            pcon.breakpoint[period].append(pcon.breakpoint[period][-1] - pcon.bpatrhalf[period])
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+
+
+                    # 多头止损
+                    if pcon.candicates[period] == 'sell 1':
+                        _unit = pcon._unit[period][-1]
+                        p = pcon.breakpoint[period][-1] - pcon.bpatrhalf[period]
+                        _price = self._cmp(ctx.open, ctx.low, p)
+                        ctx.sell(_price, _unit)
+                        self.display(ctx, 'sell', cand)
+
+                        pcon.unit[period] -= 1
+                        pcon.breakpoint[period] = pcon.breakpoint[period][:-1]
+                        pcon._unit[period] = pcon._unit[period][:-1]
+
+                        self.freqcount[cand] += 1
+
+                    # 空头止损
+                    if pcon.candicates[period] == 'cover 1':
+                        _unit = pcon._unit[period][-1]
+                        p = pcon.breakpoint[period][-1] + pcon.bpatrhalf[period]
+                        _price = self._cmp(ctx.open, ctx.high, p)
+                        ctx.cover(_price, _unit)
+                        self.display(ctx, 'cover', cand)
+
+                        pcon.unit[period] += 1
+                        pcon.breakpoint[period] = pcon.breakpoint[period][:-1]
+                        pcon._unit[period] = pcon._unit[period][:-1]
+
+                        self.freqcount[cand] += 1
+
+                pcon.candicates = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
+
+            self.candicates.clear()
+
+
+
+
+    def on_exit(self, ctx):
+        return
+
+    def display(self, ctx, name='nameless', cand='nameless'):
+        cash = ctx.cash()
+        #print ('\n')
+        print ('**************  20 Days  **************')
+        print ('N20 = %f, N = %f' % (self.n20_mul[cand], self.N_mul[cand][-1]))
+
+        print('%s %s; Number of Units = %d' % (name, cand, self.num_unit_mul[cand]))
+        print ('current price: %f, cash = %f, equity = %f' % (ctx.close, cash, ctx.equity()))
+        if name == 'buy' or name == 'sell' or name == 'sell-force':
+            tag = 'long'
+        elif name == 'short' or name == 'cover' or name == 'cover-force':
+            tag = 'short'
+        else:
+            tag = 'unkonwn'
+        # print (ctx.position(tag, 'BB.SHFE'))
+        print ('datetime = %s' % str(ctx.datetime))
+
+        MESSAGE.get_info(cash, name, cand=cand)
+
+    def _cmp(self, a, b, c):
+        lst = [a, b, c]
+        lst.sort()
+        return lst[1]
+
+# TODO predict.price
 class Beforehandtt(Strategy):
-    pass
+    def on_init(self, ctx):
+        """初始化数据"""
+        '''
+        d = {
+            '20min': 20, '1h': 60, '1day': 365, '5days': 1825, '20days': 7300, '60days': 21900,
+            '10min': 10, '30min': 30, '3h': 180, '2days': 730, '10days': 3650, '30days': 10950,
+            '80min': 80, '4h': 240, '4day': 1460,            '80days': 292000, '240days': 87600
+        }
+        ctx.tt = {}
+        for i in d:
+            print i
+            ctx.tt[i] = Turtle_base(ctx.close, d[i], i, ('r', 'g'))
+        '''
+        ctx.tt20 = Turtle_base(ctx.close, 20, 'tt20', ('r', 'g'))
+        ctx.tt10 = Turtle_base(ctx.close, 10, 'tt10', ('y', 'b'))
+
+        self.N_mul = dict()
+        self.N20_mul = dict()
+        self.n20_mul = dict()
+        self.num_unit_mul = dict()
+        self.breakpoint_mul = dict()
+
+        self.risk_ctl = Risk_ctl(ctx)
+        self.restraint = Restraint()
+
+        self.L = []
+
+        self.candicates = dict()
+
+        print 'ctx.symbol = %s' % ctx.symbol.split('.')[0]      # eg. 'A1601'
+
+        '''********************************'''
+
+        self.count = Timecount(ctx)
+        print self.count
+
+        self.status = {}
+        self.timecount = {}
+        self.activepcon = Activepcon()
+        self.freqcount = {}
+
+        self.predict = Predict_module(CTS)
+
+    def on_symbol(self, ctx):
+
+        #self.count = Timecount(ctx)
+
+        if ctx.curbar == 1:
+            self.N_mul[ctx.symbol] = []
+            self.N20_mul[ctx.symbol] = 0.0
+            self.n20_mul[ctx.symbol] = 0.0
+            self.num_unit_mul[ctx.symbol] = 0
+            self.breakpoint_mul[ctx.symbol] = []
+
+            '''ATR type: 1. 20min 2. 1h 3. 1day 4. 5days 5. 20days 6. 60days'''
+            self.status[ctx.symbol] = Constatus()
+            self.timecount[ctx.symbol] = Timecount(ctx)
+            #self.activepcon = Activepcon()
+            self.freqcount[ctx.symbol] = 0
 
 
+        if ctx.curbar > 1:
+            self.L.append(max((ctx.high - ctx.close[1]), (ctx.close[1] - ctx.low), (ctx.high - ctx.low)))
+            self.N_mul[ctx.symbol] = self.L
+
+            import time
+
+            print ctx.datetime, ctx.open, ctx.symbol, ctx.volume
+
+            isactive = self.timecount[ctx.symbol]._count(ctx)      #return if period active
+            self.status[ctx.symbol]._ATR(ctx)
+
+            lst = []
+            if isactive:
+                self.status[ctx.symbol]._ATR(period=isactive)
+
+                lst = self.activepcon.refresh(ctx.symbol, self.status)
+
+                if '1day' in isactive[0]:
+                    for i in self.freqcount:
+                        self.freqcount[i] = 0
+
+
+
+
+            '''Strategy start!'''
+            for period in ['20min', '1h', '1day', '5days', '20days', '60days']:
+                if self.status[ctx.symbol].atrfour[period] and [ctx.symbol, period] in lst:
+                    '''write strategy here'''
+                    pcon = self.status[ctx.symbol]
+                    self.restraint.countall(self.status)
+
+                    #print '^^^^^^^^^^^^^^^^^^^'
+                    #print ctx.close[1], pcon.maxmin[period][0], ctx.high
+                    stopall = Stopall(self.freqcount[ctx.symbol])
+
+                    stopbuy = Stopbuy(ctxdate=ctx[ctx.symbol].datetime, dateend=ctx.symbol) and\
+                              self.restraint.ismaxnuit(ctx.symbol) and stopall
+
+
+                    if pcon.unit[period] == 0:
+                        # 多头入市
+                        if ctx.close[1] < pcon.maxmin[period][0] and \
+                                        self.predict.price(ctx.symbol, ctx.curbar) >= pcon.maxmin[period][0] and\
+                                not stopbuy:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'buy 1'
+                            pcon.candicates[period] = 'buy 1'
+                            self.candicates[ctx.symbol] = True
+                            assert pcon.candicates[period] == self.status[ctx.symbol].candicates[period]
+
+
+                        # 空头入市
+                        elif ctx.close[1] > pcon.maxmin[period][1] and \
+                                        self.predict.price(ctx.symbol, ctx.curbar) <= pcon.maxmin[period][1] and \
+                                not stopbuy:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'short 1'
+                            pcon.candicates[period] = 'short 1'
+                            self.candicates[ctx.symbol] = True
+                            assert pcon.candicates[period] == self.status[ctx.symbol].candicates[period]
+
+                    elif 0 < pcon.unit[period] < 4:
+                        # 多头加仓
+                        if self.predict.price(ctx.symbol, ctx.curbar) >= pcon.breakpoint[period][-1] + pcon.bpatrhalf[period] and \
+                                not stopbuy:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'buy 2'
+                            pcon.candicates[period] = 'buy 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                    elif -4 < pcon.unit[period] < 0:
+                        # 空头加仓
+                        if self.predict.price(ctx.symbol, ctx.curbar)<= pcon.breakpoint[period][-1] - pcon.bpatrhalf[period] and \
+                                not stopbuy:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'short 2'
+                            pcon.candicates[period] = 'short 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                    elif 0 < pcon.unit[period]:
+                        # 多头退市
+                        if (ctx.close[1] > pcon.maxminhalf[period][1] >= ctx.low or
+                                Timefour(pcon.atrfour_count[period][0]) or BackStrengh(pcon.atrhalf[period])) and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'sell 2'
+                            pcon.candicates[period] = 'sell 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                        # 多头止损
+                        elif ctx.low <= pcon.breakpoint[period][-1] - pcon.bpatrhalf[period] and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'sell 1'
+                            pcon.candicates[period] = 'sell 1'
+                            self.candicates[ctx.symbol] = True
+
+
+                    elif pcon.unit[period] < 0:
+                        # 空头退市
+                        if (ctx.close[1] < pcon.maxminhalf[period][0] <= ctx.high or
+                                Timefour(pcon.atrfour_count[period][0]) or BackStrengh(pcon.atrhalf[period])) and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'cover 2'
+                            pcon.candicates[period] = 'cover 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                        # 空头止损
+                        elif ctx.high >= pcon.breakpoint[period][-1] + pcon.bpatrhalf[period] and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'cover 1'
+                            pcon.candicates[period] = 'cover 1'
+                            self.candicates[ctx.symbol] = True
+
+
+    def on_bar(self, ctx):
+        if self.candicates:
+            print 'self.candicates = %s' % self.candicates
+
+            for cand in self.candicates:
+                pcon = self.status[cand]
+                for period in ['20min', '1h', '1day', '5days', '20days', '60days']:
+                    print('cand = %s' % cand)
+                    # cash = ctx.cash()
+                    print pcon.candicates
+
+                    # force cover
+                    '''
+                    if cash < 0:
+                        print ('### Current print = %f' % cash)
+                        if self.num_unit_mul[cand] > 0:
+                            all_units = 0
+                            for lst in self.breakpoint_mul[cand]:
+                                all_units += lst[1]
+                                assert lst[2] == 'buy'
+                            self.breakpoint_mul[cand] = []
+                            assert isinstance(all_units, int)
+                            assert all_units > 0
+                            print ('sell_unit = %d' % all_units)
+                            _price = self._cmp(ctx.high, ctx.low, ctx.tt10['min'][1])
+                            ctx.sell(_price, all_units)
+                            self.num_unit_mul[cand]  = 0
+                            self.display(ctx, 'sell-force', cand)
+                        elif self.num_unit_mul[cand] < 0:
+                            all_units = 0
+                            for lst in self.breakpoint_mul[cand]:
+                                all_units += lst[1]
+                                assert lst[2] == 'short'
+                            self.breakpoint_mul[cand] = []
+                            assert isinstance(all_units, int)
+                            assert all_units > 0
+                            print ('cover_unit = %d' % all_units)
+                            _price = self._cmp(ctx.high, ctx.low, ctx.tt10['max'][1])
+                            ctx.cover(_price, all_units)
+                            self.num_unit_mul[cand]  = 0
+                            self.display(ctx, 'cover-force', cand)
+
+                        continue
+                    '''
+
+                    # 多头开仓
+                    if pcon.candicates[period] == 'buy 1':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            _price = self._cmp(ctx.open, ctx.high, pcon.maxmin[period][0])
+                            ctx.buy(_price, _unit)
+                            self.display(ctx, 'buy', cand)
+
+                            pcon.unit[period] = 1
+                            pcon.breakpoint[period].append(pcon.maxmin[period][0])
+                            pcon.bpatrhalf[period] = pcon.atrhalf[period]
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+
+                    # 多头退市
+                    if pcon.candicates[period] == 'sell 2':
+                        _unit = sum(pcon._unit[period])
+                        _price = self._cmp(ctx.open, ctx.low, pcon.maxmin[period][1])
+                        ctx.sell(_price, _unit)
+                        self.display(ctx, 'sell', cand)
+
+                        pcon.unit[period] = 0
+                        pcon.breakpoint[period] = []
+                        pcon.bpatrhalf[period] = 0
+                        pcon._unit[period] = []
+
+                        self.freqcount[cand] += 1
+
+                    # 空头开仓
+                    if pcon.candicates[period] == 'short 1':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            _price = self._cmp(ctx.open, ctx.low, pcon.maxmin[period][1])
+                            ctx.short(_price, _unit)
+                            self.display(ctx, 'short', cand)
+
+                            pcon.unit[period] = 1
+                            pcon.breakpoint[period].append(pcon.maxmin[period][1])
+                            pcon.bpatrhalf[period] = pcon.atrhalf[period]
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+                    # 空头退市
+                    if pcon.candicates[period] == 'cover 2':
+                        _unit = sum(pcon._unit[period])
+                        _price = self._cmp(ctx.open, ctx.high, pcon.maxmin[period][0])
+                        ctx.cover(_price, _unit)
+                        self.display(ctx, 'cover', cand)
+
+                        pcon.unit[period] = 0
+                        pcon.breakpoint[period] = []
+                        pcon.bpatrhalf[period] = 0
+                        pcon._unit[period] = []
+
+                        self.freqcount[cand] += 1
+
+
+                    # 多头加仓
+                    if pcon.candicates[period] == 'buy 2':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            p = pcon.breakpoint[period][-1] + pcon.bpatrhalf[period]
+                            _price = self._cmp(ctx.open, ctx.high, p)
+                            ctx.buy(_price, _unit)
+                            self.display(ctx, 'buy', cand)
+
+                            pcon.unit[period] += 1
+                            pcon.breakpoint[period].append(pcon.breakpoint[period][-1] + pcon.bpatrhalf[period])
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+
+                    # 空头加仓
+                    if pcon.candicates[period] == 'short 2':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            p = pcon.breakpoint[period][-1] - pcon.bpatrhalf[period]
+                            _price = self._cmp(ctx.open, ctx.low, p)
+                            ctx.short(_price, _unit)
+                            self.display(ctx, 'short', cand)
+
+                            pcon.unit[period] -= 1
+                            pcon.breakpoint[period].append(pcon.breakpoint[period][-1] - pcon.bpatrhalf[period])
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+
+
+                    # 多头止损
+                    if pcon.candicates[period] == 'sell 1':
+                        _unit = pcon._unit[period][-1]
+                        p = pcon.breakpoint[period][-1] - pcon.bpatrhalf[period]
+                        _price = self._cmp(ctx.open, ctx.low, p)
+                        ctx.sell(_price, _unit)
+                        self.display(ctx, 'sell', cand)
+
+                        pcon.unit[period] -= 1
+                        pcon.breakpoint[period] = pcon.breakpoint[period][:-1]
+                        pcon._unit[period] = pcon._unit[period][:-1]
+
+                        self.freqcount[cand] += 1
+
+                    # 空头止损
+                    if pcon.candicates[period] == 'cover 1':
+                        _unit = pcon._unit[period][-1]
+                        p = pcon.breakpoint[period][-1] + pcon.bpatrhalf[period]
+                        _price = self._cmp(ctx.open, ctx.high, p)
+                        ctx.cover(_price, _unit)
+                        self.display(ctx, 'cover', cand)
+
+                        pcon.unit[period] += 1
+                        pcon.breakpoint[period] = pcon.breakpoint[period][:-1]
+                        pcon._unit[period] = pcon._unit[period][:-1]
+
+                        self.freqcount[cand] += 1
+
+                pcon.candicates = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
+
+            self.candicates.clear()
+
+
+
+
+    def on_exit(self, ctx):
+        return
+
+    def display(self, ctx, name='nameless', cand='nameless'):
+        cash = ctx.cash()
+        #print ('\n')
+        print ('**************  20 Days  **************')
+        print ('N20 = %f, N = %f' % (self.n20_mul[cand], self.N_mul[cand][-1]))
+
+        print('%s %s; Number of Units = %d' % (name, cand, self.num_unit_mul[cand]))
+        print ('current price: %f, cash = %f, equity = %f' % (ctx.close, cash, ctx.equity()))
+        if name == 'buy' or name == 'sell' or name == 'sell-force':
+            tag = 'long'
+        elif name == 'short' or name == 'cover' or name == 'cover-force':
+            tag = 'short'
+        else:
+            tag = 'unkonwn'
+        # print (ctx.position(tag, 'BB.SHFE'))
+        print ('datetime = %s' % str(ctx.datetime))
+
+        MESSAGE.get_info(cash, name, cand=cand)
+
+    def _cmp(self, a, b, c):
+        lst = [a, b, c]
+        lst.sort()
+        return lst[1]
+
+# done
 class ATRTurtle(Strategy):
-    pass
+
+    def on_init(self, ctx):
+        """初始化数据"""
+        '''
+        d = {
+            '20min': 20, '1h': 60, '1day': 365, '5days': 1825, '20days': 7300, '60days': 21900,
+            '10min': 10, '30min': 30, '3h': 180, '2days': 730, '10days': 3650, '30days': 10950,
+            '80min': 80, '4h': 240, '4day': 1460,            '80days': 292000, '240days': 87600
+        }
+        ctx.tt = {}
+        for i in d:
+            print i
+            ctx.tt[i] = Turtle_base(ctx.close, d[i], i, ('r', 'g'))
+        '''
+        ctx.tt20 = Turtle_base(ctx.close, 20, 'tt20', ('r', 'g'))
+        ctx.tt10 = Turtle_base(ctx.close, 10, 'tt10', ('y', 'b'))
+
+        self.N_mul = dict()
+        self.N20_mul = dict()
+        self.n20_mul = dict()
+        self.num_unit_mul = dict()
+        self.breakpoint_mul = dict()
+
+        self.risk_ctl = Risk_ctl(ctx)
+        self.restraint = Restraint()
+
+        self.L = []
+
+        self.candicates = dict()
+
+        print 'ctx.symbol = %s' % ctx.symbol.split('.')[0]      # eg. 'A1601'
+
+        '''********************************'''
+
+        self.count = Timecount(ctx)
+        print self.count
+
+        self.status = {}
+        self.timecount = {}
+        self.activepcon = Activepcon()
+        self.freqcount = {}
+
+    def on_symbol(self, ctx):
+
+        #self.count = Timecount(ctx)
+
+        if ctx.curbar == 1:
+            self.N_mul[ctx.symbol] = []
+            self.N20_mul[ctx.symbol] = 0.0
+            self.n20_mul[ctx.symbol] = 0.0
+            self.num_unit_mul[ctx.symbol] = 0
+            self.breakpoint_mul[ctx.symbol] = []
+
+            '''ATR type: 1. 20min 2. 1h 3. 1day 4. 5days 5. 20days 6. 60days'''
+            self.status[ctx.symbol] = Constatus()
+            self.timecount[ctx.symbol] = Timecount(ctx)
+            #self.activepcon = Activepcon()
+            self.freqcount[ctx.symbol] = 0
 
 
+        if ctx.curbar > 1:
+            self.L.append(max((ctx.high - ctx.close[1]), (ctx.close[1] - ctx.low), (ctx.high - ctx.low)))
+            self.N_mul[ctx.symbol] = self.L
+
+            import time
+
+            print ctx.datetime, ctx.open, ctx.symbol, ctx.volume
+
+            isactive = self.timecount[ctx.symbol]._count(ctx)      #return if period active
+            self.status[ctx.symbol]._ATR(ctx)
+
+            lst = []
+            if isactive:
+                self.status[ctx.symbol]._ATR(period=isactive)
+
+                lst = self.activepcon.refresh(ctx.symbol, self.status)
+
+                if '1day' in isactive[0]:
+                    for i in self.freqcount:
+                        self.freqcount[i] = 0
+
+
+
+
+            '''Strategy start!'''
+            for period in ['20min', '1h', '1day', '5days', '20days', '60days']:
+                if self.status[ctx.symbol].atrfour[period] and [ctx.symbol, period] in lst:
+                    '''write strategy here'''
+                    pcon = self.status[ctx.symbol]
+                    self.restraint.countall(self.status)
+
+                    #print '^^^^^^^^^^^^^^^^^^^'
+                    #print ctx.close[1], pcon.maxmin[period][0], ctx.high
+                    stopall = Stopall(self.freqcount[ctx.symbol])
+
+                    stopbuy = Stopbuy(ctxdate=ctx[ctx.symbol].datetime, dateend=ctx.symbol) and\
+                              self.restraint.ismaxnuit(ctx.symbol) and stopall
+
+
+                    if pcon.unit[period] == 0:
+                        # 多头入市
+                        if ctx.close[1] < (pcon.avgfour[period] + 2 * pcon.atr[period]) and \
+                                        ctx.high >= (pcon.avgfour[period] + 2 * pcon.atr[period]) and \
+                                not stopbuy:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'buy 1'
+                            pcon.candicates[period] = 'buy 1'
+                            self.candicates[ctx.symbol] = True
+                            assert pcon.candicates[period] == self.status[ctx.symbol].candicates[period]
+
+
+                        # 空头入市
+                        elif ctx.close[1] > (pcon.avgfour[period] + 2 * pcon.atr[period]) and\
+                                        ctx.low <= (pcon.avgfour[period] + 2 * pcon.atr[period]) and \
+                                not stopbuy:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'short 1'
+                            pcon.candicates[period] = 'short 1'
+                            self.candicates[ctx.symbol] = True
+                            assert pcon.candicates[period] == self.status[ctx.symbol].candicates[period]
+
+                    elif 0 < pcon.unit[period] < 4:
+                        # 多头加仓
+                        if ctx.high >= pcon.breakpoint[period][-1] + pcon.bpatrhalf[period] and \
+                                not stopbuy:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'buy 2'
+                            pcon.candicates[period] = 'buy 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                    elif -4 < pcon.unit[period] < 0:
+                        # 空头加仓
+                        if ctx.low <= pcon.breakpoint[period][-1] - pcon.bpatrhalf[period] and \
+                                not stopbuy:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'short 2'
+                            pcon.candicates[period] = 'short 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                    elif 0 < pcon.unit[period]:
+                        # 多头退市
+                        if (ctx.close[1] > (pcon.avgfour[period] - pcon.atr[period] / 2) >= ctx.low or Timefour(pcon.atrfour_count[period][0])) and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'sell 2'
+                            pcon.candicates[period] = 'sell 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                        # 多头止损
+                        elif ctx.low <= pcon.breakpoint[period][-1] - pcon.bpatrhalf[period] and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'sell 1'
+                            pcon.candicates[period] = 'sell 1'
+                            self.candicates[ctx.symbol] = True
+
+
+                    elif pcon.unit[period] < 0:
+                        # 空头退市
+                        if (ctx.close[1] < (pcon.avgfour[period] - pcon.atr[period] / 2) <= ctx.high or Timefour(pcon.atrfour_count[period][0])) and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'cover 2'
+                            pcon.candicates[period] = 'cover 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                        # 空头止损
+                        elif ctx.high >= pcon.breakpoint[period][-1] + pcon.bpatrhalf[period] and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'cover 1'
+                            pcon.candicates[period] = 'cover 1'
+                            self.candicates[ctx.symbol] = True
+
+
+    def on_bar(self, ctx):
+        if self.candicates:
+            print 'self.candicates = %s' % self.candicates
+
+            for cand in self.candicates:
+                pcon = self.status[cand]
+                for period in ['20min', '1h', '1day', '5days', '20days', '60days']:
+                    print('cand = %s' % cand)
+                    # cash = ctx.cash()
+                    print pcon.candicates
+
+                    # force cover
+                    '''
+                    if cash < 0:
+                        print ('### Current print = %f' % cash)
+                        if self.num_unit_mul[cand] > 0:
+                            all_units = 0
+                            for lst in self.breakpoint_mul[cand]:
+                                all_units += lst[1]
+                                assert lst[2] == 'buy'
+                            self.breakpoint_mul[cand] = []
+                            assert isinstance(all_units, int)
+                            assert all_units > 0
+                            print ('sell_unit = %d' % all_units)
+                            _price = self._cmp(ctx.high, ctx.low, ctx.tt10['min'][1])
+                            ctx.sell(_price, all_units)
+                            self.num_unit_mul[cand]  = 0
+                            self.display(ctx, 'sell-force', cand)
+                        elif self.num_unit_mul[cand] < 0:
+                            all_units = 0
+                            for lst in self.breakpoint_mul[cand]:
+                                all_units += lst[1]
+                                assert lst[2] == 'short'
+                            self.breakpoint_mul[cand] = []
+                            assert isinstance(all_units, int)
+                            assert all_units > 0
+                            print ('cover_unit = %d' % all_units)
+                            _price = self._cmp(ctx.high, ctx.low, ctx.tt10['max'][1])
+                            ctx.cover(_price, all_units)
+                            self.num_unit_mul[cand]  = 0
+                            self.display(ctx, 'cover-force', cand)
+
+                        continue
+                    '''
+
+                    # 多头开仓
+                    if pcon.candicates[period] == 'buy 1':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            _price = self._cmp(ctx.open, ctx.high, pcon.maxmin[period][0])
+                            ctx.buy(_price, _unit)
+                            self.display(ctx, 'buy', cand)
+
+                            pcon.unit[period] = 1
+                            pcon.breakpoint[period].append(pcon.maxmin[period][0])
+                            pcon.bpatrhalf[period] = pcon.atrhalf[period]
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+
+                    # 多头退市
+                    if pcon.candicates[period] == 'sell 2':
+                        _unit = sum(pcon._unit[period])
+                        _price = self._cmp(ctx.open, ctx.low, pcon.maxmin[period][1])
+                        ctx.sell(_price, _unit)
+                        self.display(ctx, 'sell', cand)
+
+                        pcon.unit[period] = 0
+                        pcon.breakpoint[period] = []
+                        pcon.bpatrhalf[period] = 0
+                        pcon._unit[period] = []
+
+                        self.freqcount[cand] += 1
+
+                    # 空头开仓
+                    if pcon.candicates[period] == 'short 1':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            _price = self._cmp(ctx.open, ctx.low, pcon.maxmin[period][1])
+                            ctx.short(_price, _unit)
+                            self.display(ctx, 'short', cand)
+
+                            pcon.unit[period] = 1
+                            pcon.breakpoint[period].append(pcon.maxmin[period][1])
+                            pcon.bpatrhalf[period] = pcon.atrhalf[period]
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+                    # 空头退市
+                    if pcon.candicates[period] == 'cover 2':
+                        _unit = sum(pcon._unit[period])
+                        _price = self._cmp(ctx.open, ctx.high, pcon.maxmin[period][0])
+                        ctx.cover(_price, _unit)
+                        self.display(ctx, 'cover', cand)
+
+                        pcon.unit[period] = 0
+                        pcon.breakpoint[period] = []
+                        pcon.bpatrhalf[period] = 0
+                        pcon._unit[period] = []
+
+                        self.freqcount[cand] += 1
+
+
+                    # 多头加仓
+                    if pcon.candicates[period] == 'buy 2':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            p = pcon.breakpoint[period][-1] + pcon.bpatrhalf[period]
+                            _price = self._cmp(ctx.open, ctx.high, p)
+                            ctx.buy(_price, _unit)
+                            self.display(ctx, 'buy', cand)
+
+                            pcon.unit[period] += 1
+                            pcon.breakpoint[period].append(pcon.breakpoint[period][-1] + pcon.bpatrhalf[period])
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+
+                    # 空头加仓
+                    if pcon.candicates[period] == 'short 2':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            p = pcon.breakpoint[period][-1] - pcon.bpatrhalf[period]
+                            _price = self._cmp(ctx.open, ctx.low, p)
+                            ctx.short(_price, _unit)
+                            self.display(ctx, 'short', cand)
+
+                            pcon.unit[period] -= 1
+                            pcon.breakpoint[period].append(pcon.breakpoint[period][-1] - pcon.bpatrhalf[period])
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+
+
+                    # 多头止损
+                    if pcon.candicates[period] == 'sell 1':
+                        _unit = pcon._unit[period][-1]
+                        p = pcon.breakpoint[period][-1] - pcon.bpatrhalf[period]
+                        _price = self._cmp(ctx.open, ctx.low, p)
+                        ctx.sell(_price, _unit)
+                        self.display(ctx, 'sell', cand)
+
+                        pcon.unit[period] -= 1
+                        pcon.breakpoint[period] = pcon.breakpoint[period][:-1]
+                        pcon._unit[period] = pcon._unit[period][:-1]
+
+                        self.freqcount[cand] += 1
+
+                    # 空头止损
+                    if pcon.candicates[period] == 'cover 1':
+                        _unit = pcon._unit[period][-1]
+                        p = pcon.breakpoint[period][-1] + pcon.bpatrhalf[period]
+                        _price = self._cmp(ctx.open, ctx.high, p)
+                        ctx.cover(_price, _unit)
+                        self.display(ctx, 'cover', cand)
+
+                        pcon.unit[period] += 1
+                        pcon.breakpoint[period] = pcon.breakpoint[period][:-1]
+                        pcon._unit[period] = pcon._unit[period][:-1]
+
+                        self.freqcount[cand] += 1
+
+                pcon.candicates = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
+
+            self.candicates.clear()
+
+
+    def on_exit(self, ctx):
+        return
+
+    def display(self, ctx, name='nameless', cand='nameless'):
+        cash = ctx.cash()
+        #print ('\n')
+        print ('**************  20 Days  **************')
+        print ('N20 = %f, N = %f' % (self.n20_mul[cand], self.N_mul[cand][-1]))
+
+        print('%s %s; Number of Units = %d' % (name, cand, self.num_unit_mul[cand]))
+        print ('current price: %f, cash = %f, equity = %f' % (ctx.close, cash, ctx.equity()))
+        if name == 'buy' or name == 'sell' or name == 'sell-force':
+            tag = 'long'
+        elif name == 'short' or name == 'cover' or name == 'cover-force':
+            tag = 'short'
+        else:
+            tag = 'unkonwn'
+        # print (ctx.position(tag, 'BB.SHFE'))
+        print ('datetime = %s' % str(ctx.datetime))
+
+        MESSAGE.get_info(cash, name, cand=cand)
+
+    def _cmp(self, a, b, c):
+        lst = [a, b, c]
+        lst.sort()
+        return lst[1]
+
+# TODO predict.price
 class ATRBeforehandtt(Strategy):
-    pass
+
+    def on_init(self, ctx):
+        """初始化数据"""
+        '''
+        d = {
+            '20min': 20, '1h': 60, '1day': 365, '5days': 1825, '20days': 7300, '60days': 21900,
+            '10min': 10, '30min': 30, '3h': 180, '2days': 730, '10days': 3650, '30days': 10950,
+            '80min': 80, '4h': 240, '4day': 1460,            '80days': 292000, '240days': 87600
+        }
+        ctx.tt = {}
+        for i in d:
+            print i
+            ctx.tt[i] = Turtle_base(ctx.close, d[i], i, ('r', 'g'))
+        '''
+        ctx.tt20 = Turtle_base(ctx.close, 20, 'tt20', ('r', 'g'))
+        ctx.tt10 = Turtle_base(ctx.close, 10, 'tt10', ('y', 'b'))
+
+        self.N_mul = dict()
+        self.N20_mul = dict()
+        self.n20_mul = dict()
+        self.num_unit_mul = dict()
+        self.breakpoint_mul = dict()
+
+        self.risk_ctl = Risk_ctl(ctx)
+        self.restraint = Restraint()
+
+        self.L = []
+
+        self.candicates = dict()
+
+        print 'ctx.symbol = %s' % ctx.symbol.split('.')[0]      # eg. 'A1601'
+
+        '''********************************'''
+
+        self.count = Timecount(ctx)
+        print self.count
+
+        self.status = {}
+        self.timecount = {}
+        self.activepcon = Activepcon()
+        self.freqcount = {}
+
+        self.predict = Predict_module(CTS)
+
+    def on_symbol(self, ctx):
+
+        #self.count = Timecount(ctx)
+
+        if ctx.curbar == 1:
+            self.N_mul[ctx.symbol] = []
+            self.N20_mul[ctx.symbol] = 0.0
+            self.n20_mul[ctx.symbol] = 0.0
+            self.num_unit_mul[ctx.symbol] = 0
+            self.breakpoint_mul[ctx.symbol] = []
+
+            '''ATR type: 1. 20min 2. 1h 3. 1day 4. 5days 5. 20days 6. 60days'''
+            self.status[ctx.symbol] = Constatus()
+            self.timecount[ctx.symbol] = Timecount(ctx)
+            #self.activepcon = Activepcon()
+            self.freqcount[ctx.symbol] = 0
+
+
+        if ctx.curbar > 1:
+            self.L.append(max((ctx.high - ctx.close[1]), (ctx.close[1] - ctx.low), (ctx.high - ctx.low)))
+            self.N_mul[ctx.symbol] = self.L
+
+            import time
+
+            print ctx.datetime, ctx.open, ctx.symbol, ctx.volume
+
+            isactive = self.timecount[ctx.symbol]._count(ctx)      #return if period active
+            self.status[ctx.symbol]._ATR(ctx)
+
+            lst = []
+            if isactive:
+                self.status[ctx.symbol]._ATR(period=isactive)
+
+                lst = self.activepcon.refresh(ctx.symbol, self.status)
+
+                if '1day' in isactive[0]:
+                    for i in self.freqcount:
+                        self.freqcount[i] = 0
+
+
+
+
+            '''Strategy start!'''
+            for period in ['20min', '1h', '1day', '5days', '20days', '60days']:
+                if self.status[ctx.symbol].atrfour[period] and [ctx.symbol, period] in lst:
+                    '''write strategy here'''
+                    pcon = self.status[ctx.symbol]
+                    self.restraint.countall(self.status)
+
+                    #print '^^^^^^^^^^^^^^^^^^^'
+                    #print ctx.close[1], pcon.maxmin[period][0], ctx.high
+                    stopall = Stopall(self.freqcount[ctx.symbol])
+
+                    stopbuy = Stopbuy(ctxdate=ctx[ctx.symbol].datetime, dateend=ctx.symbol) and\
+                              self.restraint.ismaxnuit(ctx.symbol) and stopall
+
+
+                    if pcon.unit[period] == 0:
+                        # 多头入市
+                        if ctx.close[1] < (pcon.avgfour[period] + 2 * pcon.atr[period]) and \
+                                self.predict.price(ctx.symbol, ctx.curbar) >= (pcon.avgfour[period] + 2 * pcon.atr[period]) and \
+                                not stopbuy:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'buy 1'
+                            pcon.candicates[period] = 'buy 1'
+                            self.candicates[ctx.symbol] = True
+                            assert pcon.candicates[period] == self.status[ctx.symbol].candicates[period]
+
+
+                        # 空头入市
+                        elif ctx.close[1] > (pcon.avgfour[period] + 2 * pcon.atr[period]) and \
+                                self.predict.price(ctx.symbol, ctx.curbar) <= (pcon.avgfour[period] + 2 * pcon.atr[period]) and \
+                                not stopbuy:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'short 1'
+                            pcon.candicates[period] = 'short 1'
+                            self.candicates[ctx.symbol] = True
+                            assert pcon.candicates[period] == self.status[ctx.symbol].candicates[period]
+
+                    elif 0 < pcon.unit[period] < 4:
+                        # 多头加仓
+                        if self.predict.price(ctx.symbol, ctx.curbar) >= pcon.breakpoint[period][-1] + pcon.bpatrhalf[period] and \
+                                not stopbuy:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'buy 2'
+                            pcon.candicates[period] = 'buy 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                    elif -4 < pcon.unit[period] < 0:
+                        # 空头加仓
+                        if self.predict.price(ctx.symbol, ctx.curbar) <= pcon.breakpoint[period][-1] - pcon.bpatrhalf[period] and \
+                                not stopbuy:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'short 2'
+                            pcon.candicates[period] = 'short 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                    elif 0 < pcon.unit[period]:
+                        # 多头退市
+                        if (ctx.close[1] > (pcon.avgfour[period] - pcon.atr[period] / 2) >= ctx.low or Timefour()) and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'sell 2'
+                            pcon.candicates[period] = 'sell 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                        # 多头止损
+                        elif ctx.low <= pcon.breakpoint[period][-1] - pcon.bpatrhalf[period] and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'sell 1'
+                            pcon.candicates[period] = 'sell 1'
+                            self.candicates[ctx.symbol] = True
+
+
+                    elif pcon.unit[period] < 0:
+                        # 空头退市
+                        if (ctx.close[1] < (pcon.avgfour[period] - pcon.atr[period] / 2) <= ctx.high or Timefour()) and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'cover 2'
+                            pcon.candicates[period] = 'cover 2'
+                            self.candicates[ctx.symbol] = True
+
+
+                        # 空头止损
+                        elif ctx.high >= pcon.breakpoint[period][-1] + pcon.bpatrhalf[period] and \
+                                not stopall:
+                            print '-----------------------'
+                            print ctx.symbol, period, 'cover 1'
+                            pcon.candicates[period] = 'cover 1'
+                            self.candicates[ctx.symbol] = True
+
+
+    def on_bar(self, ctx):
+        if self.candicates:
+            print 'self.candicates = %s' % self.candicates
+
+            for cand in self.candicates:
+                pcon = self.status[cand]
+                for period in ['20min', '1h', '1day', '5days', '20days', '60days']:
+                    print('cand = %s' % cand)
+                    # cash = ctx.cash()
+                    print pcon.candicates
+
+                    # force cover
+                    '''
+                    if cash < 0:
+                        print ('### Current print = %f' % cash)
+                        if self.num_unit_mul[cand] > 0:
+                            all_units = 0
+                            for lst in self.breakpoint_mul[cand]:
+                                all_units += lst[1]
+                                assert lst[2] == 'buy'
+                            self.breakpoint_mul[cand] = []
+                            assert isinstance(all_units, int)
+                            assert all_units > 0
+                            print ('sell_unit = %d' % all_units)
+                            _price = self._cmp(ctx.high, ctx.low, ctx.tt10['min'][1])
+                            ctx.sell(_price, all_units)
+                            self.num_unit_mul[cand]  = 0
+                            self.display(ctx, 'sell-force', cand)
+                        elif self.num_unit_mul[cand] < 0:
+                            all_units = 0
+                            for lst in self.breakpoint_mul[cand]:
+                                all_units += lst[1]
+                                assert lst[2] == 'short'
+                            self.breakpoint_mul[cand] = []
+                            assert isinstance(all_units, int)
+                            assert all_units > 0
+                            print ('cover_unit = %d' % all_units)
+                            _price = self._cmp(ctx.high, ctx.low, ctx.tt10['max'][1])
+                            ctx.cover(_price, all_units)
+                            self.num_unit_mul[cand]  = 0
+                            self.display(ctx, 'cover-force', cand)
+
+                        continue
+                    '''
+
+                    # 多头开仓
+                    if pcon.candicates[period] == 'buy 1':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            _price = self._cmp(ctx.open, ctx.high, pcon.maxmin[period][0])
+                            ctx.buy(_price, _unit)
+                            self.display(ctx, 'buy', cand)
+
+                            pcon.unit[period] = 1
+                            pcon.breakpoint[period].append(pcon.maxmin[period][0])
+                            pcon.bpatrhalf[period] = pcon.atrhalf[period]
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+
+                    # 多头退市
+                    if pcon.candicates[period] == 'sell 2':
+                        _unit = sum(pcon._unit[period])
+                        _price = self._cmp(ctx.open, ctx.low, pcon.maxmin[period][1])
+                        ctx.sell(_price, _unit)
+                        self.display(ctx, 'sell', cand)
+
+                        pcon.unit[period] = 0
+                        pcon.breakpoint[period] = []
+                        pcon.bpatrhalf[period] = 0
+                        pcon._unit[period] = []
+
+                        self.freqcount[cand] += 1
+
+                    # 空头开仓
+                    if pcon.candicates[period] == 'short 1':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            _price = self._cmp(ctx.open, ctx.low, pcon.maxmin[period][1])
+                            ctx.short(_price, _unit)
+                            self.display(ctx, 'short', cand)
+
+                            pcon.unit[period] = 1
+                            pcon.breakpoint[period].append(pcon.maxmin[period][1])
+                            pcon.bpatrhalf[period] = pcon.atrhalf[period]
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+                    # 空头退市
+                    if pcon.candicates[period] == 'cover 2':
+                        _unit = sum(pcon._unit[period])
+                        _price = self._cmp(ctx.open, ctx.high, pcon.maxmin[period][0])
+                        ctx.cover(_price, _unit)
+                        self.display(ctx, 'cover', cand)
+
+                        pcon.unit[period] = 0
+                        pcon.breakpoint[period] = []
+                        pcon.bpatrhalf[period] = 0
+                        pcon._unit[period] = []
+
+                        self.freqcount[cand] += 1
+
+
+                    # 多头加仓
+                    if pcon.candicates[period] == 'buy 2':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            p = pcon.breakpoint[period][-1] + pcon.bpatrhalf[period]
+                            _price = self._cmp(ctx.open, ctx.high, p)
+                            ctx.buy(_price, _unit)
+                            self.display(ctx, 'buy', cand)
+
+                            pcon.unit[period] += 1
+                            pcon.breakpoint[period].append(pcon.breakpoint[period][-1] + pcon.bpatrhalf[period])
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+
+                    # 空头加仓
+                    if pcon.candicates[period] == 'short 2':
+                        _unit = self.risk_ctl.unitctl(ctx, pcon.atrhalf[period])
+                        if _unit > 0:
+                            p = pcon.breakpoint[period][-1] - pcon.bpatrhalf[period]
+                            _price = self._cmp(ctx.open, ctx.low, p)
+                            ctx.short(_price, _unit)
+                            self.display(ctx, 'short', cand)
+
+                            pcon.unit[period] -= 1
+                            pcon.breakpoint[period].append(pcon.breakpoint[period][-1] - pcon.bpatrhalf[period])
+                            pcon._unit[period] += [_unit]
+
+                            self.freqcount[cand] += 1
+
+
+
+                    # 多头止损
+                    if pcon.candicates[period] == 'sell 1':
+                        _unit = pcon._unit[period][-1]
+                        p = pcon.breakpoint[period][-1] - pcon.bpatrhalf[period]
+                        _price = self._cmp(ctx.open, ctx.low, p)
+                        ctx.sell(_price, _unit)
+                        self.display(ctx, 'sell', cand)
+
+                        pcon.unit[period] -= 1
+                        pcon.breakpoint[period] = pcon.breakpoint[period][:-1]
+                        pcon._unit[period] = pcon._unit[period][:-1]
+
+                        self.freqcount[cand] += 1
+
+                    # 空头止损
+                    if pcon.candicates[period] == 'cover 1':
+                        _unit = pcon._unit[period][-1]
+                        p = pcon.breakpoint[period][-1] + pcon.bpatrhalf[period]
+                        _price = self._cmp(ctx.open, ctx.high, p)
+                        ctx.cover(_price, _unit)
+                        self.display(ctx, 'cover', cand)
+
+                        pcon.unit[period] += 1
+                        pcon.breakpoint[period] = pcon.breakpoint[period][:-1]
+                        pcon._unit[period] = pcon._unit[period][:-1]
+
+                        self.freqcount[cand] += 1
+
+                pcon.candicates = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
+
+            self.candicates.clear()
+
+
+    def on_exit(self, ctx):
+        return
+
+    def display(self, ctx, name='nameless', cand='nameless'):
+        cash = ctx.cash()
+        #print ('\n')
+        print ('**************  20 Days  **************')
+        print ('N20 = %f, N = %f' % (self.n20_mul[cand], self.N_mul[cand][-1]))
+
+        print('%s %s; Number of Units = %d' % (name, cand, self.num_unit_mul[cand]))
+        print ('current price: %f, cash = %f, equity = %f' % (ctx.close, cash, ctx.equity()))
+        if name == 'buy' or name == 'sell' or name == 'sell-force':
+            tag = 'long'
+        elif name == 'short' or name == 'cover' or name == 'cover-force':
+            tag = 'short'
+        else:
+            tag = 'unkonwn'
+        # print (ctx.position(tag, 'BB.SHFE'))
+        print ('datetime = %s' % str(ctx.datetime))
+
+        MESSAGE.get_info(cash, name, cand=cand)
+
+    def _cmp(self, a, b, c):
+        lst = [a, b, c]
+        lst.sort()
+        return lst[1]
+
 
 
 class RUN(object):

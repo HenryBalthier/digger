@@ -8,16 +8,17 @@ import MY_digger.mychoice
 # from MY_digger.mul_pred_modu_inf import Predict
 from mul_config import Default
 from mul_config import PERIOD
-#from mul_pred_modu import Predict
+from mul_pred_modu import Predict
 
-CTS = Default.get_name()
-RSK = Default.get_risk()
-CLEVEL = Default.get_clevel()
-AGENCY = Default.get_agency()
-STOPBUY = Default.get_stopbuy()
+CTS = Default.get_name()        # 合约名
+RSK = Default.get_risk()        # 风控
+CLEVEL = Default.get_clevel()   # 置信度
+AGENCY = Default.get_agency()   # 交易所？
+STOPBUY = Default.get_stopbuy() #
+A3 = 10     # 反向涨跌阈值
 
 FILTER = 0
-OPENPRED = 1
+OPENPRED = 1                    # 1开启预测模块
 
 yellow = '\033[1;33m'
 yellow_ = '\033[0m'
@@ -31,7 +32,7 @@ FLAG = {
             '60days': False
 }
 
-FREQCOUNT = 500
+FREQCOUNT = 300         # 高频交易最高次数
 
 """
 class Reference(object):
@@ -105,6 +106,7 @@ class Reference(object):
 
 
 class Operation_cycle(object):
+    """操作周期，当前版本已取消该功能"""
     def __init__(self):
         self.count = 0
         self.cycle = Default.get_opcycle() - 1
@@ -124,6 +126,7 @@ class Operation_cycle(object):
 
 
 class Predict_module(object):
+    """结合机器学习预测指标"""
     def __init__(self, cts):
         print cts
         lst = []
@@ -135,21 +138,23 @@ class Predict_module(object):
         # print (self.p.dat_output[1])
 
     def signal(self, ctxsymbol, index):
+        """力度指标"""
         from mul_config import PRED
 
         ctxsymbol = ctxsymbol.split('.')[0]
         if not PRED:
             return 0
-        elif self.price(ctxsymbol, index) * self.confidence(ctxsymbol, index) > 0:
+        elif self.pricesymbel(ctxsymbol, index) * self.confidence(ctxsymbol, index) > 0:
             return 1
-        elif self.price(ctxsymbol, index) * self.confidence(ctxsymbol, index) < 0:
+        elif self.pricesymbel(ctxsymbol, index) * self.confidence(ctxsymbol, index) < 0:
             return -1
-        elif self.price(ctxsymbol, index) * self.confidence(ctxsymbol, index) == 0:
+        elif self.pricesymbel(ctxsymbol, index) * self.confidence(ctxsymbol, index) == 0:
             return 0
         else:
             assert False
 
-    def price(self, ctxsymbol, index):
+    def pricesymbel(self, ctxsymbol, index):
+        """走势"""
         if self.p.dat_output[ctxsymbol][index - 1] > 0:
             return 1
         elif self.p.dat_output[ctxsymbol][index - 1] < 0:
@@ -158,14 +163,21 @@ class Predict_module(object):
             return 0
 
     def confidence(self, ctxsymbol, index):
+        """置信度"""
         if self.p.confidence[ctxsymbol][index - 1] > CLEVEL:
             return 1
         else:
             return 0
 
+    #@TODO
+    def price(self, symbol, index):
+        """具体价格预测"""
+        return True
+
 
 
 class Risk_ctl(object):
+    """风控，头寸管理"""
     def __init__(self, ctx):
         risk = Get_pcon()
         print ctx.symbol
@@ -196,6 +208,7 @@ class Risk_ctl(object):
 
 
 class Get_pcon(object):
+    """合约信息获取"""
     def __init__(self):
         self.cts = {
             'code': 0,
@@ -220,6 +233,7 @@ class Get_pcon(object):
 
 
 class Restraint(object):
+    """交易约束"""
     def __init__(self):
         from mul_config import LIST, RANGE, ID
         self.r = Default.get_restraint()
@@ -394,6 +408,7 @@ class Restraint(object):
     '''
 
 class Messages(object):
+    """交易信息打印"""
     def __init__(self, init_cash):
         self.cash = [init_cash]
         self.operation = {
@@ -435,6 +450,7 @@ class Messages(object):
 
 def Stopbuy(ctxdate, dateend):
     """
+    风控
     eg
     2016-01-18 10:44:00
     C1701.SHFE
@@ -455,6 +471,7 @@ def Stopbuy(ctxdate, dateend):
     return False
 
 def Stopall(freqcount):
+    """防止高频的风控"""
     if freqcount > FREQCOUNT:
         print '%s >> freqcount' % freqcount
         return True
@@ -637,6 +654,7 @@ class Timecount(object):
 
 
 class Constatus(object):
+    """合约信息存储"""
     def __init__(self):
         self.status = {}
         self.status = {
@@ -655,8 +673,6 @@ class Constatus(object):
         self.candicates = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
 
         self._unit = {'20min': [],'1h': [],'1day': [],'5days': [],'20days': [],'60days': []}
-
-
 
         self.atr = {'20min': 0,'1h': 0,'1day': 0,'5days': 0,'20days': 0,'60days': 0}
         self.vol = {'20min': 0,'1h': 0,'1day': 0,'5days': 0,'20days': 0,'60days': 0}
@@ -684,6 +700,10 @@ class Constatus(object):
                              '20days': [0, 9999], '60days': [0, 9999]}
         self.maxminfour_count = {'20min': [0, 9999], '1h': [0, 9999], '1day': [0, 9999], '5days': [0, 9999],
                              '20days': [0, 9999], '60days': [0, 9999]}
+
+        self.avgfour = {'20min': 0, '1h': 0, '1day': 0, '5days': 0, '20days': 0, '60days': 0}
+        self.avgfour_count = {'20min': [0, 1], '1h': [0, 1], '1day': [0, 1], '5days': [0, 1], '20days': [0, 1],
+                              '60days': [0, 1]}
 
 
 
@@ -728,6 +748,9 @@ class Constatus(object):
                     self.maxminfour_count[p] = [0, 9999]
                     assert self.maxminfour[p] != self.maxminfour_count[p]
 
+                    self.avgfour[p] = self.avgfour_count[p][0] / self.avgfour_count[p][1]
+                    self.avgfour_count[p][0] = self.avgfour_count[p][1] = 1
+
             # print 'atr = %s' % self.atr
         else:
             '''count ATR and VOL in every minute'''
@@ -735,9 +758,13 @@ class Constatus(object):
             MAX = ctx.high[1]
             MIN = ctx.low[1]
             vol = ctx.volume
+            avg = (ctx.high[1] + ctx.close[1]) / 2
             for i in self.atr_count:
                 self.atr_count[i][0] += N
                 self.atr_count[i][1] += 1
+
+                self.avgfour_count[i][0] += avg
+                self.avgfour_count[i][1] += 1
 
                 self.atrhalf_count[i][0] += N
                 self.atrhalf_count[i][1] += 1
@@ -763,6 +790,19 @@ class Constatus(object):
                     self.maxminfour_count[i][1] = MIN
 
 
+def BackStrengh(atrhalf):
+
+    if atrhalf > A3:
+        return True
+    else:
+        return False
+
+def Timefour(atrfour_count):
+    if atrfour_count == 1:
+        return True
+    else:
+        return False
+
 
 __all__ = [
     'Operation_cycle',
@@ -779,7 +819,9 @@ __all__ = [
     'Stopall',
     'Activepcon',
     'Timecount',
-    'Constatus'
+    'Constatus',
+    'Timefour',
+    'BackStrengh'
 ]
 
 if __name__ == '__main__':

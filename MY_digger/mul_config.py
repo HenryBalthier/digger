@@ -3,9 +3,9 @@
 ML = 0                   # N Predict
 PRED = 0                 # only price predict
 
-OPEN = {
-    'Turtle':                   1,
-    'Strength Turtle':          0,
+OPEN = {                                # 开启各个策略
+    'Turtle':                   0,
+    'Strength Turtle':          1,
     'Beforehand Turtle':        0,
     'ATR Turtle':               0,
     'ATR Beforehand Turtle':    0
@@ -17,17 +17,17 @@ PCON = 'AUTO'            # 合约简称
 # PCON = ['A', 'B']
 EXCHANGE = 'SHFE'
 PERIOD = '1MINUTE'         # 合约数据时间格式
-RANGE = ['C']
-ID = ['1701', '1703']
-MAXCONTRACT = 3
+RANGE = ['C']               # 合约编号
+ID = ['1701', '1703']       # 合约日期
+MAXCONTRACT = 3             # 最多同时交易合约数
 
 AGENCY = 1
-RANDOM = 1
+RANDOM = 1                  # 1开启随即挂单失败
 
 # DATESTART = '2015-01-01 00:00:00'
 # DATEEND = '2015-12-01 00:00:00'
 # STOPBUY = '2015-12-10 00:00:00'
-STOPBUY = 7
+# STOPBUY = 7
 
 # 回测相关参数
 CAPITAL = 1000000       # 初始资金总数
@@ -44,6 +44,22 @@ TT = {                  # 海龟相关数据（单位时间倍率）
     'OUT': 10,          # 退市指标10
     'N': 20             # 波动率20
 }
+
+'''Remove ML para from config'''
+
+# 机器学习相关参数
+CLOSE_IDX = 1
+PRED_RANGE = 5
+SPLIT_RATIO = 0.2
+NUM_STEPS = 1
+
+# 态势分析相关参数
+CLOSE_IDX = 1
+HIGH_IDX = 2
+LOW_IDX = 3
+PRED_RANGE = 5
+SPLIT_RATIO = 0.2
+PCON_DICT = {'A': 'a', 'AG': '豆', 'B': '螺纹钢', 'BB': 'bb', 'C': 'c'}
 
 
 # Params of PCON
@@ -260,8 +276,7 @@ def run_mychoice():
 '''
 
 
-'''Remove ML'''
-'''
+
 class ML_Default(object):
     # Add machine learning para below!
     def __init__(self):
@@ -286,25 +301,10 @@ class ML_Default(object):
     @classmethod
     def get_split_ratio(cls):
         return SPLIT_RATIO
-'''
 
-
-'''Remove ML para from config'''
-'''
-# 机器学习相关参数
-CLOSE_IDX = 1
-PRED_RANGE = 5
-SPLIT_RATIO = 0.2
-
-# 态势分析相关参数
-CLOSE_IDX = 1
-HIGH_IDX = 2
-LOW_IDX = 3
-PRED_RANGE = 5
-SPLIT_RATIO = 0.2
-PCON_DICT = {'A': 'a', 'AG': '豆', 'B': '螺纹钢', 'BB': 'bb', 'C': 'c'}
-'''
-
+    @classmethod
+    def get_num_steps(cls):
+        return NUM_STEPS
 
 
 class Futures(object):
