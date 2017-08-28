@@ -15,7 +15,11 @@
 
 # 文件关系
 mytest——策略主程序
+
 base——基础函数
+
 config——配置文件
+
 pred——rnn预测
+
 news——新闻数据处理
